@@ -192,14 +192,53 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   const callingSoundUrl = useRef<string | null>(null);
   const ringtoneSoundUrl = useRef<string | null>(null);
+  const preloadedRingtone = useRef<HTMLAudioElement | null>(null);
+  const preloadedCalling = useRef<HTMLAudioElement | null>(null);
 
-  // Generate sound URLs once
+  // Generate sound URLs + pre-create Audio elements
   useEffect(() => {
-    // Calling: single 440Hz tone
     callingSoundUrl.current = generateToneWav([440], [0.8]);
-    // Ringtone: ascending 3-note
     ringtoneSoundUrl.current = generateToneWav([523, 659, 784], [0.25, 0.25, 0.35]);
+
+    // Pre-create audio elements
+    preloadedRingtone.current = new Audio(ringtoneSoundUrl.current);
+    preloadedRingtone.current.loop = true;
+    preloadedRingtone.current.volume = 0.7;
+
+    preloadedCalling.current = new Audio(callingSoundUrl.current);
+    preloadedCalling.current.loop = true;
+    preloadedCalling.current.volume = 0.5;
+
+    // Unlock audio on first user interaction (play silent then pause)
+    function unlock() {
+      if (preloadedRingtone.current) {
+        preloadedRingtone.current.muted = true;
+        preloadedRingtone.current.play().then(() => {
+          preloadedRingtone.current!.pause();
+          preloadedRingtone.current!.muted = false;
+          preloadedRingtone.current!.currentTime = 0;
+        }).catch(() => {});
+      }
+      if (preloadedCalling.current) {
+        preloadedCalling.current.muted = true;
+        preloadedCalling.current.play().then(() => {
+          preloadedCalling.current!.pause();
+          preloadedCalling.current!.muted = false;
+          preloadedCalling.current!.currentTime = 0;
+        }).catch(() => {});
+      }
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("keydown", unlock);
+    }
+    window.addEventListener("click", unlock);
+    window.addEventListener("touchstart", unlock);
+    window.addEventListener("keydown", unlock);
+
     return () => {
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("keydown", unlock);
       if (callingSoundUrl.current) URL.revokeObjectURL(callingSoundUrl.current);
       if (ringtoneSoundUrl.current) URL.revokeObjectURL(ringtoneSoundUrl.current);
     };
@@ -207,12 +246,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   function startCallingSound() {
     stopCallingSound();
-    if (!callingSoundUrl.current) return;
-    const audio = new Audio(callingSoundUrl.current);
-    audio.loop = true;
-    audio.volume = 0.5;
-    audio.play().catch(() => {});
-    callingAudioRef.current = audio;
+    if (preloadedCalling.current) {
+      preloadedCalling.current.currentTime = 0;
+      preloadedCalling.current.play().catch(() => {});
+      callingAudioRef.current = preloadedCalling.current;
+    }
   }
 
   function stopCallingSound() {
@@ -225,12 +263,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   function playRingtone() {
     stopRingtone();
-    if (!ringtoneSoundUrl.current) return;
-    const audio = new Audio(ringtoneSoundUrl.current);
-    audio.loop = true;
-    audio.volume = 0.7;
-    audio.play().catch(() => {});
-    ringtoneAudioRef.current = audio;
+    if (preloadedRingtone.current) {
+      preloadedRingtone.current.currentTime = 0;
+      preloadedRingtone.current.play().catch(() => {});
+      ringtoneAudioRef.current = preloadedRingtone.current;
+    }
   }
 
   function stopRingtone() {
@@ -481,22 +518,37 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     return () => { if (endCallSoundUrl.current) URL.revokeObjectURL(endCallSoundUrl.current); };
   }, []);
 
+  const endCallAudioRef = useRef<HTMLAudioElement | null>(null);
+
   function playEndCallSound() {
+    // Stop any previous end call sound
+    if (endCallAudioRef.current) {
+      endCallAudioRef.current.pause();
+      endCallAudioRef.current = null;
+    }
     if (!endCallSoundUrl.current) return;
     const audio = new Audio(endCallSoundUrl.current);
+    audio.loop = false;
     audio.volume = 0.5;
+    audio.onended = () => { endCallAudioRef.current = null; };
     audio.play().catch(() => {});
+    endCallAudioRef.current = audio;
   }
 
+  const endingCallRef = useRef(false);
+
   function endCall() {
+    if (endingCallRef.current) return; // Prevent double calls
+    endingCallRef.current = true;
     stopCallingSound();
     stopRingtone();
-    if (pcRef.current) pcRef.current.close();
+    if (pcRef.current) { try { pcRef.current.close(); } catch {} }
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
     pcRef.current = null; localStreamRef.current = null;
     pendingCandidatesRef.current = [];
     setInCall(false); setCalling(false); setMuted(false);
     playEndCallSound();
+    setTimeout(() => { endingCallRef.current = false; }, 1000);
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
   }
