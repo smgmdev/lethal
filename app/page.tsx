@@ -105,12 +105,17 @@ export default function LandingPage() {
 
         // Fetch real places from Overpass
         try {
-          const r = await fetch(`/api/places?lat=${latitude}&lng=${longitude}&radius=2000`);
-          const data = await r.json();
+          const r = await fetch(`/api/places?lat=${latitude}&lng=${longitude}&radius=3000`);
+          let data = await r.json();
+          // If no results, try wider radius
+          if (!data || data.length === 0) {
+            const r2 = await fetch(`/api/places?lat=${latitude}&lng=${longitude}&radius=10000`);
+            data = await r2.json();
+          }
           clearInterval(interval);
           setFindingStep(3);
           setTimeout(() => {
-            setPlaces(data);
+            setPlaces(data || []);
             setStage("results");
           }, 800);
         } catch {

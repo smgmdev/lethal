@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
 
   // Query Overpass API for nearby food/drink places
   const query = `
-    [out:json][timeout:10];
+    [out:json][timeout:25];
     (
       node["amenity"="restaurant"](around:${radius},${lat},${lng});
       node["amenity"="cafe"](around:${radius},${lat},${lng});
@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
       method: "POST",
       body: `data=${encodeURIComponent(query)}`,
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(25000),
     });
 
     const data = await r.json();
