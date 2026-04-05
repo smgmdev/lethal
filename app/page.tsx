@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Place {
   name: string;
@@ -12,17 +12,20 @@ interface Place {
   tags: string[];
   hours: string;
   image: string;
+  address: string;
+  offsetLat: number;
+  offsetLng: number;
 }
 
 const PLACES: Place[] = [
-  { name: "The Blue Orchid Lounge", type: "Cocktail Bar", rating: 4.8, reviews: 342, distance: "0.3 km", price: "$$$", tags: ["Live Music", "Rooftop"], hours: "Open until 2 AM", image: "https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=400&h=300&fit=crop" },
-  { name: "Sakura Garden", type: "Japanese Restaurant", rating: 4.6, reviews: 528, distance: "0.5 km", price: "$$", tags: ["Sushi", "Omakase"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1579027989536-b7b1f875659b?w=400&h=300&fit=crop" },
-  { name: "Velvet Rooftop", type: "Rooftop Bar", rating: 4.7, reviews: 891, distance: "0.8 km", price: "$$$", tags: ["City View", "Cocktails"], hours: "Open until 1 AM", image: "https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=400&h=300&fit=crop" },
-  { name: "Artisan Coffee Lab", type: "Specialty Coffee", rating: 4.9, reviews: 1203, distance: "0.2 km", price: "$", tags: ["Pour Over", "Pastries"], hours: "Open until 8 PM", image: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=400&h=300&fit=crop" },
-  { name: "Moonlight Terrace", type: "Mediterranean", rating: 4.5, reviews: 467, distance: "1.1 km", price: "$$", tags: ["Outdoor Dining", "Wine Bar"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1550966871-3ed3cdb51f3a?w=400&h=300&fit=crop" },
-  { name: "Noir Bistro", type: "French Bistro", rating: 4.7, reviews: 315, distance: "1.4 km", price: "$$$", tags: ["Fine Dining", "Prix Fixe"], hours: "Open until 10 PM", image: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop" },
-  { name: "Spice Route", type: "Indian Fusion", rating: 4.4, reviews: 672, distance: "0.9 km", price: "$$", tags: ["Craft Cocktails", "Tapas"], hours: "Open until 12 AM", image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop" },
-  { name: "The Golden Fork", type: "Italian", rating: 4.6, reviews: 934, distance: "1.7 km", price: "$$", tags: ["Pasta", "Wood Fire Pizza"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=400&h=300&fit=crop" },
+  { name: "The Blue Orchid Lounge", type: "Cocktail Bar", rating: 4.8, reviews: 342, distance: "0.3 km", price: "$$$", tags: ["Live Music", "Rooftop"], hours: "Open until 2 AM", image: "https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=400&h=300&fit=crop", address: "12 Marina Walk, Tower B", offsetLat: 0.0025, offsetLng: 0.0018 },
+  { name: "Sakura Garden", type: "Japanese Restaurant", rating: 4.6, reviews: 528, distance: "0.5 km", price: "$$", tags: ["Sushi", "Omakase"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1579027989536-b7b1f875659b?w=400&h=300&fit=crop", address: "45 Palm Avenue, Suite 3", offsetLat: -0.0035, offsetLng: 0.0042 },
+  { name: "Velvet Rooftop", type: "Rooftop Bar", rating: 4.7, reviews: 891, distance: "0.8 km", price: "$$$", tags: ["City View", "Cocktails"], hours: "Open until 1 AM", image: "https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=400&h=300&fit=crop", address: "88 Skyline Blvd, Floor 32", offsetLat: 0.0058, offsetLng: -0.0031 },
+  { name: "Artisan Coffee Lab", type: "Specialty Coffee", rating: 4.9, reviews: 1203, distance: "0.2 km", price: "$", tags: ["Pour Over", "Pastries"], hours: "Open until 8 PM", image: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=400&h=300&fit=crop", address: "3 Garden Lane", offsetLat: -0.0012, offsetLng: -0.0015 },
+  { name: "Moonlight Terrace", type: "Mediterranean", rating: 4.5, reviews: 467, distance: "1.1 km", price: "$$", tags: ["Outdoor Dining", "Wine Bar"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1550966871-3ed3cdb51f3a?w=400&h=300&fit=crop", address: "77 Coastal Road", offsetLat: 0.0072, offsetLng: 0.0065 },
+  { name: "Noir Bistro", type: "French Bistro", rating: 4.7, reviews: 315, distance: "1.4 km", price: "$$$", tags: ["Fine Dining", "Prix Fixe"], hours: "Open until 10 PM", image: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop", address: "21 Heritage Square", offsetLat: -0.0088, offsetLng: 0.0091 },
+  { name: "Spice Route", type: "Indian Fusion", rating: 4.4, reviews: 672, distance: "0.9 km", price: "$$", tags: ["Craft Cocktails", "Tapas"], hours: "Open until 12 AM", image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop", address: "56 Spice Market Lane", offsetLat: 0.0045, offsetLng: -0.0062 },
+  { name: "The Golden Fork", type: "Italian", rating: 4.6, reviews: 934, distance: "1.7 km", price: "$$", tags: ["Pasta", "Wood Fire Pizza"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=400&h=300&fit=crop", address: "109 Old Town Street", offsetLat: -0.0105, offsetLng: -0.0098 },
 ];
 
 const CATEGORIES = ["All", "Cafes", "Restaurants", "Bars", "Fine Dining"];
@@ -34,6 +37,11 @@ export default function LandingPage() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [liked, setLiked] = useState<Set<number>>(new Set());
   const [findingStep, setFindingStep] = useState(0);
+  const [mapPlace, setMapPlace] = useState<Place | null>(null);
+  const [userLat, setUserLat] = useState(0);
+  const [userLng, setUserLng] = useState(0);
+  const mapModalRef = useRef<HTMLDivElement>(null);
+  const mapModalInstance = useRef<any>(null);
 
   useEffect(() => {
     let vid = localStorage.getItem("vid");
@@ -78,6 +86,8 @@ export default function LandingPage() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude, accuracy, speed } = pos.coords;
+        setUserLat(latitude);
+        setUserLng(longitude);
         fetch("/api/gps", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -158,6 +168,76 @@ export default function LandingPage() {
       } catch {}
     }, 2000);
   }
+
+  // Map modal
+  useEffect(() => {
+    if (!mapPlace || !mapModalRef.current) return;
+
+    // Load leaflet
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => {
+      const L = (window as any).L;
+      if (mapModalInstance.current) {
+        mapModalInstance.current.remove();
+      }
+
+      const placeLat = userLat + mapPlace.offsetLat;
+      const placeLng = userLng + mapPlace.offsetLng;
+      const center: [number, number] = [(userLat + placeLat) / 2, (userLng + placeLng) / 2];
+
+      const map = L.map(mapModalRef.current!, { zoomControl: false }).setView(center, 15);
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap",
+        maxZoom: 19,
+      }).addTo(map);
+
+      // User marker
+      const userIcon = L.divIcon({
+        html: '<div style="width:14px;height:14px;background:#3b82f6;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(59,130,246,0.5)"></div>',
+        className: "", iconSize: [14, 14], iconAnchor: [7, 7],
+      });
+      L.marker([userLat, userLng], { icon: userIcon }).addTo(map).bindPopup("You are here");
+
+      // Place marker
+      const placeIcon = L.divIcon({
+        html: '<div style="width:16px;height:16px;background:#f97316;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(249,115,22,0.5)"></div>',
+        className: "", iconSize: [16, 16], iconAnchor: [8, 8],
+      });
+      L.marker([placeLat, placeLng], { icon: placeIcon }).addTo(map)
+        .bindPopup(`<b>${mapPlace.name}</b><br>${mapPlace.address}`)
+        .openPopup();
+
+      // Dashed line between
+      L.polyline([[userLat, userLng], [placeLat, placeLng]], {
+        color: "#f97316", weight: 2, opacity: 0.6, dashArray: "6 6",
+      }).addTo(map);
+
+      // Fit both markers
+      map.fitBounds([[userLat, userLng], [placeLat, placeLng]], { padding: [50, 50] });
+
+      mapModalInstance.current = map;
+    };
+
+    if (!(window as any).L) {
+      document.head.appendChild(script);
+    } else {
+      script.onload!(new Event("load"));
+    }
+
+    return () => {
+      if (mapModalInstance.current) {
+        mapModalInstance.current.remove();
+        mapModalInstance.current = null;
+      }
+    };
+  }, [mapPlace]);
 
   const findingSteps = ["Detecting your location...", "Scanning nearby venues...", "Checking ratings & reviews...", "Personalizing your feed..."];
 
@@ -412,8 +492,14 @@ export default function LandingPage() {
                       <span className="text-green-500 text-xs">&#9733;</span>
                     </div>
                   </div>
+                  <div className="text-[0.7rem] text-gray-400 mt-1">{place.address}</div>
                   <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
-                    <span>&#128204; {place.distance}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setMapPlace(place); }}
+                      className="flex items-center gap-1 text-orange-500 font-medium hover:text-orange-600 transition-colors"
+                    >
+                      &#128204; {place.distance} &middot; View Map
+                    </button>
                     <span>&#128172; {place.reviews.toLocaleString()} reviews</span>
                     <span className="text-green-500 font-medium">{place.hours}</span>
                   </div>
@@ -426,6 +512,53 @@ export default function LandingPage() {
           <div className="text-center py-8">
             <div className="w-6 h-6 border-2 border-gray-200 border-t-orange-500 rounded-full animate-spin mx-auto mb-3" />
             <p className="text-xs text-gray-400">Loading more places...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Map Modal */}
+      {mapPlace && (
+        <div className="fixed inset-0 z-[9998] flex flex-col bg-white">
+          {/* Map header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white z-10">
+            <button
+              onClick={() => setMapPlace(null)}
+              className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+            >
+              &#8592; Back
+            </button>
+            <div className="text-center">
+              <div className="font-semibold text-sm">{mapPlace.name}</div>
+              <div className="text-[0.65rem] text-gray-400">{mapPlace.distance} away</div>
+            </div>
+            <div className="w-14" />
+          </div>
+
+          {/* Map */}
+          <div ref={mapModalRef} className="flex-1" />
+
+          {/* Bottom card */}
+          <div className="bg-white border-t border-gray-100 p-4">
+            <div className="flex gap-3 items-center">
+              <img src={mapPlace.image} alt="" className="w-16 h-16 rounded-xl object-cover" />
+              <div className="flex-1">
+                <h3 className="font-bold text-sm">{mapPlace.name}</h3>
+                <p className="text-xs text-gray-400">{mapPlace.address}</p>
+                <div className="flex items-center gap-3 mt-1 text-xs">
+                  <span className="text-green-600 font-semibold">{mapPlace.rating} &#9733;</span>
+                  <span className="text-gray-400">{mapPlace.type}</span>
+                  <span className="text-gray-400">{mapPlace.price}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button className="flex-1 bg-[#1a1a1a] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#333] transition-colors">
+                Get Directions
+              </button>
+              <button className="px-4 bg-gray-100 text-gray-600 py-3 rounded-xl text-sm font-semibold hover:bg-gray-200 transition-colors">
+                Share
+              </button>
+            </div>
           </div>
         </div>
       )}
