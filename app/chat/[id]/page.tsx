@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { use } from "react";
+import { supabaseClient } from "@/lib/supabase-client";
 
 interface Message {
   id: number;
@@ -90,10 +91,22 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       loadMessages();
       loadOtherUser();
       checkTyping();
-      pollCallSignals();
     }, 800);
     const hb = setInterval(sendHeartbeat, 10000);
-    return () => { clearInterval(i); clearInterval(hb); };
+
+    // Realtime subscription for call signals
+    const channel = supabaseClient
+      .channel(`calls-${me.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "call_signals", filter: `to_id=eq.${me.id}` },
+        (payload: any) => {
+          handleCallSignal(payload.new);
+        }
+      )
+      .subscribe();
+
+    return () => { clearInterval(i); clearInterval(hb); supabaseClient.removeChannel(channel); };
   }, [me]);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -282,18 +295,17 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
   }
 
-  async function pollCallSignals() {
-    if (!me) return;
-    try {
-      const r = await fetch(`/api/chat/call?userId=${me.id}`);
-      const signals = await r.json();
-      for (const s of signals) {
-        if (s.type === "call-start" && !inCall) setIncomingCall(s);
-        else if (s.type === "call-answer" && pcRef.current) { await pcRef.current.setRemoteDescription(s.payload.answer); setCalling(false); }
-        else if (s.type === "ice-candidate" && pcRef.current) await pcRef.current.addIceCandidate(s.payload);
-        else if (s.type === "call-end") endCall();
-      }
-    } catch {}
+  async function handleCallSignal(s: any) {
+    if (s.type === "call-start" && !inCall) {
+      setIncomingCall(s);
+    } else if (s.type === "call-answer" && pcRef.current) {
+      try { await pcRef.current.setRemoteDescription(s.payload.answer); } catch {}
+      setCalling(false);
+    } else if (s.type === "ice-candidate" && pcRef.current) {
+      try { await pcRef.current.addIceCandidate(s.payload); } catch {}
+    } else if (s.type === "call-end") {
+      endCall();
+    }
   }
 
   function formatTime(ts: string) {
@@ -315,11 +327,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (!msg.file_url) return null;
     const type = msg.file_type || "";
     if (type.startsWith("image/"))
-      return <img src={msg.file_url} alt="" className="max-w-[280px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(msg.file_url!, "_blank")} />;
+      return <img src={msg.file_url} alt="" className="max-w-full w-auto rounded-lg mt-1 cursor-pointer" style={{ maxWidth: "min(280px, 100%)" }} onClick={() => window.open(msg.file_url!, "_blank")} />;
     if (type.startsWith("video/"))
-      return <video src={msg.file_url} controls className="max-w-[280px] rounded-lg mt-1" />;
+      return <video src={msg.file_url} controls playsInline className="rounded-lg mt-1" style={{ maxWidth: "min(280px, 100%)" }} />;
     if (type.startsWith("audio/"))
-      return <audio src={msg.file_url} controls className="mt-1 max-w-[280px]" />;
+      return <audio src={msg.file_url} controls className="mt-1 w-full" style={{ maxWidth: "min(280px, 100%)" }} />;
     return (
       <a href={msg.file_url} target="_blank" className="flex items-center gap-2 bg-[#ffffff15] rounded-lg p-2 mt-1 no-underline text-inherit">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
