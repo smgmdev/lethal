@@ -40,6 +40,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const [inCall, setInCall] = useState(false);
   const [callType, setCallType] = useState<"audio" | "video">("audio");
   const [muted, setMuted] = useState(false);
+  const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -49,7 +50,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const pendingCandidatesRef = useRef<RTCIceCandidate[]>([]);
   const pausePollRef = useRef(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tabVisibleRef = useRef(true);
@@ -328,7 +328,29 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // ── WebRTC ──
+  // ── WebRTC — no ICE trickle, send all candidates bundled with offer/answer ──
+  function createPC(): RTCPeerConnection {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
+    pc.ontrack = (e) => { remoteStreamRef.current = e.streams[0]; setHasRemoteStream(true); };
+    return pc;
+  }
+
+  // Wait for all ICE candidates to be gathered
+  function waitForIceComplete(pc: RTCPeerConnection): Promise<void> {
+    return new Promise((resolve) => {
+      if (pc.iceGatheringState === "complete") { resolve(); return; }
+      const check = () => { if (pc.iceGatheringState === "complete") { pc.removeEventListener("icegatheringstatechange", check); resolve(); } };
+      pc.addEventListener("icegatheringstatechange", check);
+      // Timeout fallback — don't wait forever
+      setTimeout(resolve, 5000);
+    });
+  }
+
   async function startCall(type: "audio" | "video") {
     if (!me || !otherUser) return;
     setCallType(type); setCalling(true); setMuted(false);
@@ -338,25 +360,23 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: type === "video" });
     } catch (err) {
       alert("Could not access microphone/camera. Please allow permissions.");
-      setCalling(false);
+      setCalling(false); stopCallingSound();
       return;
     }
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const pc = createPC();
     pcRef.current = pc;
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-    pc.ontrack = (e) => {
-      remoteStreamRef.current = e.streams[0];
-    };
-    pc.onicecandidate = (e) => {
-      if (e.candidate) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "ice-candidate", payload: e.candidate }) });
-    };
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    // Wait for all ICE candidates to be included in the offer
+    await waitForIceComplete(pc);
+
+    // Send offer with all ICE candidates baked in
     await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { offer, callType: type } }) });
+      body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { offer: pc.localDescription, callType: type } }) });
     setInCall(true);
   }
 
@@ -373,21 +393,19 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     }
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const pc = createPC();
     pcRef.current = pc;
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-    pc.ontrack = (e) => {
-      remoteStreamRef.current = e.streams[0];
-    };
-    pc.onicecandidate = (e) => {
-      if (e.candidate) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "ice-candidate", payload: e.candidate }) });
-    };
-    await pc.setRemoteDescription(signal.payload.offer);
+
+    await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+    // Wait for all ICE candidates
+    await waitForIceComplete(pc);
+
+    // Send answer with all ICE candidates baked in
     await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer } }) });
+      body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer: pc.localDescription } }) });
   }
 
   const endCallPlayedRef = useRef(false);
@@ -411,8 +429,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (pcRef.current) { try { pcRef.current.close(); } catch {} }
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
     pcRef.current = null; localStreamRef.current = null; remoteStreamRef.current = null;
-    pendingCandidatesRef.current = [];
-    setInCall(false); setCalling(false); setMuted(false);
+    setInCall(false); setCalling(false); setMuted(false); setHasRemoteStream(false);
     playEndCallSound();
     setTimeout(() => { endingCallRef.current = false; }, 1000);
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -453,14 +470,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     }
   }
 
-  async function flushCandidates() {
-    if (!pcRef.current || !pcRef.current.remoteDescription) return;
-    for (const c of pendingCandidatesRef.current) {
-      try { await pcRef.current.addIceCandidate(c); } catch {}
-    }
-    pendingCandidatesRef.current = [];
-  }
-
   async function handleCallSignal(s: any) {
     try {
       if (s.type === "call-start") {
@@ -469,17 +478,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       } else if (s.type === "call-answer") {
         if (pcRef.current) {
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(s.payload.answer));
-          await flushCandidates();
         }
         setCalling(false);
         stopCallingSound();
-      } else if (s.type === "ice-candidate") {
-        if (pcRef.current && pcRef.current.remoteDescription && s.payload) {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(s.payload));
-        } else if (s.payload) {
-          // Queue candidate until remote description is set
-          pendingCandidatesRef.current.push(new RTCIceCandidate(s.payload));
-        }
       } else if (s.type === "call-end") {
         endCall();
       }
