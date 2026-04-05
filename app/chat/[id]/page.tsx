@@ -61,27 +61,43 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   // Sound refs — single Audio element per sound, reused
   const soundsRef = useRef<{ message: HTMLAudioElement; ringtone: HTMLAudioElement; calling: HTMLAudioElement; endcall: HTMLAudioElement } | null>(null);
 
-  // Initialize sounds once
+  // Initialize sounds once + unlock on first interaction
   useEffect(() => {
-    soundsRef.current = {
+    const s = {
       message: new Audio("/sounds/message.wav"),
       ringtone: new Audio("/sounds/ringtone.wav"),
       calling: new Audio("/sounds/calling.wav"),
       endcall: new Audio("/sounds/endcall.wav"),
     };
-    soundsRef.current.ringtone.loop = true;
-    soundsRef.current.calling.loop = true;
-    soundsRef.current.endcall.loop = false;
-    soundsRef.current.message.loop = false;
-    soundsRef.current.message.volume = 0.5;
-    soundsRef.current.ringtone.volume = 0.7;
-    soundsRef.current.calling.volume = 0.5;
-    soundsRef.current.endcall.volume = 0.5;
+    s.ringtone.loop = true;
+    s.calling.loop = true;
+    s.endcall.loop = false;
+    s.message.loop = false;
+    s.message.volume = 0.5;
+    s.ringtone.volume = 0.7;
+    s.calling.volume = 0.5;
+    s.endcall.volume = 0.5;
+    soundsRef.current = s;
+
+    // Unlock all audio elements on first user interaction
+    function unlock() {
+      Object.values(s).forEach((a) => {
+        a.muted = true;
+        a.play().then(() => { a.pause(); a.muted = false; a.currentTime = 0; }).catch(() => { a.muted = false; });
+      });
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("keydown", unlock);
+    }
+    window.addEventListener("click", unlock);
+    window.addEventListener("touchstart", unlock);
+    window.addEventListener("keydown", unlock);
 
     return () => {
-      if (soundsRef.current) {
-        Object.values(soundsRef.current).forEach(a => { a.pause(); a.currentTime = 0; });
-      }
+      Object.values(s).forEach((a) => { a.pause(); a.currentTime = 0; });
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("keydown", unlock);
     };
   }, []);
 
@@ -178,7 +194,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       loadMessages();
       loadOtherUser();
       checkTyping();
-      pollCallSignalsFallback();
     }, 800);
     const hb = setInterval(sendHeartbeat, 10000);
 
@@ -189,7 +204,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "call_signals", filter: `to_id=eq.${me.id}` },
         (payload: any) => {
-          processSignal(payload.new);
+          handleCallSignalRef.current(payload.new);
         }
       )
       .subscribe();
@@ -346,8 +361,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       if (pc.iceGatheringState === "complete") { resolve(); return; }
       const check = () => { if (pc.iceGatheringState === "complete") { pc.removeEventListener("icegatheringstatechange", check); resolve(); } };
       pc.addEventListener("icegatheringstatechange", check);
-      // Timeout fallback — don't wait forever
-      setTimeout(resolve, 5000);
+      // Timeout fallback
+      setTimeout(resolve, 2000);
     });
   }
 
@@ -492,31 +507,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   // Keep ref updated so realtime subscription always has latest version
   handleCallSignalRef.current = handleCallSignal;
 
-  // Dedup signals — track processed IDs
-  const processedSignalsRef = useRef<Set<number>>(new Set());
-
-  function processSignal(s: any) {
-    if (!s.id || processedSignalsRef.current.has(s.id)) return;
-    processedSignalsRef.current.add(s.id);
-    // Keep set from growing forever
-    if (processedSignalsRef.current.size > 100) {
-      const arr = Array.from(processedSignalsRef.current);
-      processedSignalsRef.current = new Set(arr.slice(-50));
-    }
-    handleCallSignalRef.current(s);
-  }
-
-  // Fallback polling for call signals (in case Realtime misses them)
-  async function pollCallSignalsFallback() {
-    if (!me) return;
-    try {
-      const r = await fetch(`/api/chat/call?userId=${me.id}`);
-      const signals = await r.json();
-      for (const s of signals) {
-        processSignal(s);
-      }
-    } catch {}
-  }
 
   function formatTime(ts: string) {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -586,7 +576,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               {/* Reject */}
               <div className="text-center">
                 <button
-                  onClick={() => { setIncomingCall(null); stopRingtone(); playEndCallSound(); }}
+                  onClick={() => { setIncomingCall(null); stopRingtone(); }}
                   className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center active:bg-red-600 shadow-lg shadow-red-500/30"
                 >
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
