@@ -43,11 +43,27 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const localStreamRef = useRef<MediaStream | null>(null);
   const pausePollRef = useRef(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const tabVisibleRef = useRef(true);
+  const visibleSinceRef = useRef(Date.now());
 
   useEffect(() => {
     const saved = localStorage.getItem("chat_user");
     if (!saved) { window.location.href = "/chat"; return; }
     setMe(JSON.parse(saved));
+  }, []);
+
+  // Track tab visibility
+  useEffect(() => {
+    function onVisChange() {
+      if (document.hidden) {
+        tabVisibleRef.current = false;
+      } else {
+        tabVisibleRef.current = true;
+        visibleSinceRef.current = Date.now();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => document.removeEventListener("visibilitychange", onVisChange);
   }, []);
 
   useEffect(() => {
@@ -80,8 +96,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   async function loadMessages() {
     if (!me || pausePollRef.current) return;
-    // Only send userId (which triggers read marking) if tab is visible
-    const uid = document.hidden ? "" : me.id;
+    // Only mark as read if tab has been visible for at least 1.5 seconds
+    const isReallyVisible = tabVisibleRef.current && (Date.now() - visibleSinceRef.current > 1500);
+    const uid = isReallyVisible ? me.id : "";
     const r = await fetch(`/api/chat/messages?conversationId=${conversationId}&userId=${uid}`);
     const data = await r.json();
     if (!pausePollRef.current) setMessages(data);
