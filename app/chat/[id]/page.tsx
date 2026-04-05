@@ -45,10 +45,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  // remoteVideoRef/remoteAudioRef removed — using callback refs + remoteStreamRef instead
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidate[]>([]);
   const pausePollRef = useRef(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -347,8 +347,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     pcRef.current = pc;
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
     pc.ontrack = (e) => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
-      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+      remoteStreamRef.current = e.streams[0];
     };
     pc.onicecandidate = (e) => {
       if (e.candidate) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -378,8 +377,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     pcRef.current = pc;
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
     pc.ontrack = (e) => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
-      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+      remoteStreamRef.current = e.streams[0];
     };
     pc.onicecandidate = (e) => {
       if (e.candidate) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -412,7 +410,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     stopRingtone();
     if (pcRef.current) { try { pcRef.current.close(); } catch {} }
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
-    pcRef.current = null; localStreamRef.current = null;
+    pcRef.current = null; localStreamRef.current = null; remoteStreamRef.current = null;
     pendingCandidatesRef.current = [];
     setInCall(false); setCalling(false); setMuted(false);
     playEndCallSound();
@@ -615,7 +613,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         <div className="fixed inset-0 z-[100] bg-[#0b141a] flex flex-col items-center justify-center" style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {callType === "video" ? (
             <>
-              <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+              <video ref={(el) => { if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline className="w-full h-full object-cover" />
               <video ref={localVideoRef} autoPlay playsInline muted className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 w-28 h-40 object-cover rounded-xl border-2 border-[#2a3942]" />
             </>
           ) : (
@@ -625,7 +623,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               </div>
               <h3 className="text-white text-xl font-semibold">{otherUser?.display_name}</h3>
               <p className="text-[#8696a0] text-sm mt-1">{calling ? "Calling..." : "In call"}</p>
-              <audio ref={remoteAudioRef} autoPlay playsInline />
+              <audio ref={(el) => { if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline />
             </div>
           )}
           <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))] flex gap-5 items-center">
