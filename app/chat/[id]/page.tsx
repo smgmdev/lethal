@@ -300,7 +300,14 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       room.on(RoomEvent.ParticipantDisconnected, () => { endCall(); });
       room.on(RoomEvent.Disconnected, () => { endCall(); });
       room.on(RoomEvent.TrackSubscribed, (track: any) => {
-        if (track.kind === "audio") { const el = track.attach(); document.body.appendChild(el); }
+        if (track.kind === "audio") {
+          // Remove any existing remote audio first
+          document.querySelectorAll(".lk-remote-audio").forEach((el) => el.remove());
+          const el = track.attach();
+          el.className = "lk-remote-audio";
+          el.style.display = "none";
+          document.body.appendChild(el);
+        }
       });
 
       await room.connect(tokenData.url, tokenData.token);
@@ -346,7 +353,14 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       room.on(RoomEvent.ParticipantDisconnected, () => { endCall(); });
       room.on(RoomEvent.Disconnected, () => { endCall(); });
       room.on(RoomEvent.TrackSubscribed, (track: any) => {
-        if (track.kind === "audio") { const el = track.attach(); document.body.appendChild(el); }
+        if (track.kind === "audio") {
+          // Remove any existing remote audio first
+          document.querySelectorAll(".lk-remote-audio").forEach((el) => el.remove());
+          const el = track.attach();
+          el.className = "lk-remote-audio";
+          el.style.display = "none";
+          document.body.appendChild(el);
+        }
       });
 
       await room.connect(tokenData.url, tokenData.token);
@@ -365,8 +379,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       try { livekitRoomRef.current.disconnect(); } catch {}
       livekitRoomRef.current = null;
     }
-    // Remove any attached audio elements
-    document.querySelectorAll("audio[data-lk-source]").forEach((el) => el.remove());
+    document.querySelectorAll(".lk-remote-audio").forEach((el) => el.remove());
     setInCall(false); setCalling(false); setMuted(false); setHasRemoteStream(false);
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
