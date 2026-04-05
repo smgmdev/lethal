@@ -16,11 +16,19 @@ export async function GET(request: NextRequest) {
 
   if (error) return Response.json([]);
 
-  // Mark messages as read
   if (userId) {
+    // Mark as delivered
     await supabase
       .from("chat_messages")
-      .update({ read: true })
+      .update({ delivered: true })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", userId)
+      .eq("delivered", false);
+
+    // Mark as read
+    await supabase
+      .from("chat_messages")
+      .update({ read: true, delivered: true })
       .eq("conversation_id", conversationId)
       .neq("sender_id", userId)
       .eq("read", false);
