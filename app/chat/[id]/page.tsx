@@ -46,7 +46,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  // remoteVideoRef/remoteAudioRef removed — using callback refs + remoteStreamRef instead
+  const remoteMediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -282,7 +282,17 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         { urls: "stun:stun1.l.google.com:19302" },
       ],
     });
-    pc.ontrack = (e) => { remoteStreamRef.current = e.streams[0]; setHasRemoteStream(true); };
+    // Only handle ontrack once
+    let trackReceived = false;
+    pc.ontrack = (e) => {
+      if (trackReceived) return;
+      trackReceived = true;
+      remoteStreamRef.current = e.streams[0];
+      if (remoteMediaRef.current) {
+        remoteMediaRef.current.srcObject = e.streams[0];
+      }
+      setHasRemoteStream(true);
+    };
     return pc;
   }
 
@@ -364,7 +374,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     stopRingtone();
     if (pcRef.current) { try { pcRef.current.close(); } catch {} }
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
-    pcRef.current = null; localStreamRef.current = null; remoteStreamRef.current = null;
+    if (remoteMediaRef.current) { remoteMediaRef.current.srcObject = null; }
+    pcRef.current = null; localStreamRef.current = null; remoteStreamRef.current = null; remoteMediaRef.current = null;
     setInCall(false); setCalling(false); setMuted(false); setHasRemoteStream(false);
     playEndCallSound();
     setTimeout(() => { endingCallRef.current = false; }, 1000);
@@ -525,8 +536,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         <div className="fixed inset-0 z-[100] bg-[#0b141a] flex flex-col items-center justify-center" style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {callType === "video" ? (
             <>
-              <video ref={(el) => { if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline className="w-full h-full object-cover" />
-              <video ref={localVideoRef} autoPlay playsInline muted className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 w-28 h-40 object-cover rounded-xl border-2 border-[#2a3942]" />
+              <video ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline className="w-full h-full object-cover" />
+              <video ref={(el) => { if (el && localStreamRef.current) el.srcObject = localStreamRef.current; }} autoPlay playsInline muted className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 w-28 h-40 object-cover rounded-xl border-2 border-[#2a3942]" />
             </>
           ) : (
             <div className="text-center">
@@ -535,7 +546,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               </div>
               <h3 className="text-white text-xl font-semibold">{otherUser?.display_name}</h3>
               <p className="text-[#8696a0] text-sm mt-1">{calling ? "Calling..." : "In call"}</p>
-              <audio ref={(el) => { if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline />
+              <audio ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline />
             </div>
           )}
           <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))] flex gap-5 items-center">
