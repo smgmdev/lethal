@@ -40,6 +40,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pausePollRef = useRef(false);
@@ -235,7 +236,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setCallType(type); setCalling(true);
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === "video" });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: type === "video" });
     } catch (err) {
       alert("Could not access microphone/camera. Please allow permissions.");
       setCalling(false);
@@ -246,7 +247,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     pcRef.current = pc;
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-    pc.ontrack = (e) => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    pc.ontrack = (e) => {
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
+      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+    };
     pc.onicecandidate = (e) => {
       if (e.candidate) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "ice-candidate", payload: e.candidate }) });
@@ -263,7 +267,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setIncomingCall(null); setCallType(signal.payload.callType || "audio"); setInCall(true);
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: signal.payload.callType === "video" });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: signal.payload.callType === "video" });
     } catch (err) {
       alert("Could not access microphone/camera. Please allow permissions.");
       setInCall(false);
@@ -274,7 +278,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     pcRef.current = pc;
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-    pc.ontrack = (e) => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    pc.ontrack = (e) => {
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
+      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+    };
     pc.onicecandidate = (e) => {
       if (e.candidate) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "ice-candidate", payload: e.candidate }) });
@@ -378,7 +385,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               </div>
               <h3 className="text-white text-xl font-semibold">{otherUser?.display_name}</h3>
               <p className="text-[#8696a0] text-sm mt-1">{calling ? "Calling..." : "In call"}</p>
-              <audio ref={remoteVideoRef as any} autoPlay playsInline />
+              <audio ref={remoteAudioRef} autoPlay playsInline />
             </div>
           )}
           <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))]">
