@@ -45,6 +45,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tabVisibleRef = useRef(true);
   const visibleSinceRef = useRef(Date.now());
+  const hasInteractedRef = useRef(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("chat_user");
@@ -52,18 +53,32 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setMe(JSON.parse(saved));
   }, []);
 
-  // Track tab visibility
+  // Track tab visibility + user interaction
   useEffect(() => {
     function onVisChange() {
       if (document.hidden) {
         tabVisibleRef.current = false;
+        hasInteractedRef.current = false;
       } else {
         tabVisibleRef.current = true;
         visibleSinceRef.current = Date.now();
       }
     }
+    function onInteract() {
+      hasInteractedRef.current = true;
+    }
     document.addEventListener("visibilitychange", onVisChange);
-    return () => document.removeEventListener("visibilitychange", onVisChange);
+    window.addEventListener("click", onInteract);
+    window.addEventListener("scroll", onInteract, true);
+    window.addEventListener("keydown", onInteract);
+    window.addEventListener("touchstart", onInteract);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
+      window.removeEventListener("click", onInteract);
+      window.removeEventListener("scroll", onInteract, true);
+      window.removeEventListener("keydown", onInteract);
+      window.removeEventListener("touchstart", onInteract);
+    };
   }, []);
 
   useEffect(() => {
@@ -96,9 +111,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   async function loadMessages() {
     if (!me || pausePollRef.current) return;
-    // Only mark as read if tab has been visible for at least 1.5 seconds
-    const isReallyVisible = tabVisibleRef.current && (Date.now() - visibleSinceRef.current > 1500);
-    const uid = isReallyVisible ? me.id : "";
+    // Only mark as read if tab visible 1.5s+ AND user has interacted
+    const isReallyActive = tabVisibleRef.current && hasInteractedRef.current && (Date.now() - visibleSinceRef.current > 1500);
+    const uid = isReallyActive ? me.id : "";
     const r = await fetch(`/api/chat/messages?conversationId=${conversationId}&userId=${uid}`);
     const data = await r.json();
     if (!pausePollRef.current) setMessages(data);
@@ -135,12 +150,23 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     typingTimeoutRef.current = setTimeout(() => {}, 3000);
   }
 
+  async function clearTyping() {
+    if (!me) return;
+    // Delete typing status by setting timestamp far in the past
+    fetch("/api/chat/typing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: me.id, conversationId: "_none" }),
+    }).catch(() => {});
+  }
+
   async function sendMessage(e?: React.FormEvent) {
     e?.preventDefault();
     if (!text.trim() || !me) return;
     const msg = text.trim();
     setText("");
     pausePollRef.current = true;
+    clearTyping();
 
     const tempMsg: Message = {
       id: Date.now(), conversation_id: conversationId, sender_id: me.id,

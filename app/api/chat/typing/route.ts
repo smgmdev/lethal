@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const conversationId = request.nextUrl.searchParams.get("conversationId") || "";
   const excludeUserId = request.nextUrl.searchParams.get("exclude") || "";
 
-  const cutoff = new Date(Date.now() - 4000).toISOString(); // typing expires after 4s
+  const cutoff = new Date(Date.now() - 2000).toISOString(); // typing expires after 2s
 
   const { data } = await supabase
     .from("typing_status")
