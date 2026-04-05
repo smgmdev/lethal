@@ -80,7 +80,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   async function loadMessages() {
     if (!me || pausePollRef.current) return;
-    const r = await fetch(`/api/chat/messages?conversationId=${conversationId}&userId=${me.id}`);
+    // Only send userId (which triggers read marking) if tab is visible
+    const uid = document.hidden ? "" : me.id;
+    const r = await fetch(`/api/chat/messages?conversationId=${conversationId}&userId=${uid}`);
     const data = await r.json();
     if (!pausePollRef.current) setMessages(data);
   }
