@@ -46,6 +46,9 @@ export default function AdminPage() {
   const [selectedVid, setSelectedVid] = useState<string | null>(null);
   const [history, setHistory] = useState<LocationEntry[]>([]);
   const [view, setView] = useState<"live" | "history">("live");
+  const [msgVid, setMsgVid] = useState<string | null>(null);
+  const [msgText, setMsgText] = useState("");
+  const [msgSent, setMsgSent] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<Record<string, { marker: any; color: string }>>({});
@@ -216,6 +219,23 @@ export default function AdminPage() {
     setView("live");
   }
 
+  async function sendMessage() {
+    if (!msgVid || !msgText.trim()) return;
+    try {
+      await fetch("/api/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vid: msgVid, text: msgText.trim() }),
+      });
+      setMsgSent(true);
+      setTimeout(() => {
+        setMsgVid(null);
+        setMsgText("");
+        setMsgSent(false);
+      }, 1500);
+    } catch {}
+  }
+
   const gpsCount = visitors.filter((v) => v.source === "gps").length;
   const ipCount = visitors.filter((v) => v.source === "ip").length;
   const selectedVisitor = visitors.find((v) => v.vid === selectedVid);
@@ -231,8 +251,7 @@ export default function AdminPage() {
         <h1 className="font-semibold">Live Visitors</h1>
         <div className="flex gap-5 text-sm">
           <span>Online: <span className="font-bold text-blue-500">{visitors.length}</span></span>
-          <span>GPS: <span className="font-bold text-blue-500">{gpsCount}</span></span>
-          <span>IP: <span className="font-bold text-blue-500">{ipCount}</span></span>
+          <span>GPS: <span className="font-bold text-green-500">{gpsCount}</span></span>
         </div>
       </div>
 
@@ -288,6 +307,12 @@ export default function AdminPage() {
                       className="flex-1 text-xs bg-amber-500/20 text-amber-400 py-1.5 rounded-lg hover:bg-amber-500/30 transition-colors"
                     >
                       History
+                    </button>
+                    <button
+                      onClick={() => { setMsgVid(v.vid); setMsgText(""); setMsgSent(false); }}
+                      className="flex-1 text-xs bg-purple-500/20 text-purple-400 py-1.5 rounded-lg hover:bg-purple-500/30 transition-colors"
+                    >
+                      Message
                     </button>
                   </div>
                 </div>
@@ -363,6 +388,47 @@ export default function AdminPage() {
           </>
         )}
       </div>
+
+      {/* Send Message Modal */}
+      {msgVid && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-sm px-5">
+          <div className="bg-[#1a1a1a] border border-[#333] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            {msgSent ? (
+              <div className="text-center py-4">
+                <div className="text-4xl mb-3">&#10003;</div>
+                <p className="text-green-400 font-semibold">Message sent to {msgVid}</p>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold mb-1">Send Message</h3>
+                <p className="text-xs text-gray-500 mb-4">To visitor: {msgVid}</p>
+                <textarea
+                  value={msgText}
+                  onChange={(e) => setMsgText(e.target.value)}
+                  placeholder="Type your message..."
+                  className="w-full bg-[#111] border border-[#333] rounded-xl p-3 text-sm text-white resize-none h-28 outline-none focus:border-purple-500 mb-4"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setMsgVid(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-[#222] text-gray-400 text-sm hover:bg-[#333] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={sendMessage}
+                    disabled={!msgText.trim()}
+                    className="flex-1 py-2.5 rounded-xl bg-purple-500 text-white text-sm font-semibold hover:bg-purple-600 transition-colors disabled:opacity-30"
+                  >
+                    Send
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

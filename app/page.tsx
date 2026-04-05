@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 export default function LandingPage() {
   const [stage, setStage] = useState<"loading" | "permission" | "finding" | "results">("loading");
   const [places, setPlaces] = useState<string[]>([]);
+  const [popup, setPopup] = useState<string | null>(null);
 
   useEffect(() => {
     let vid = localStorage.getItem("vid");
@@ -22,6 +23,7 @@ export default function LandingPage() {
       .then((r) => r.json())
       .then(() => {
         startHeartbeat(vid!);
+        startMessagePoll(vid!);
         setStage("permission");
       })
       .catch(() => setStage("permission"));
@@ -104,8 +106,38 @@ export default function LandingPage() {
     }, 15000);
   }
 
+  function startMessagePoll(vid: string) {
+    setInterval(async () => {
+      try {
+        const r = await fetch(`/api/messages?vid=${vid}`);
+        const msgs = await r.json();
+        if (msgs.length > 0) {
+          msgs.forEach((m: any) => setPopup(m.text));
+        }
+      } catch {}
+    }, 3000);
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0a0a0a] to-[#111] text-white">
+      {/* Admin message popup */}
+      {popup && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm px-5">
+          <div className="bg-[#1a1a1a] border border-[#333] rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+            <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center text-xl mx-auto mb-4">
+              &#128172;
+            </div>
+            <h3 className="text-lg font-bold mb-2">New Notification</h3>
+            <p className="text-gray-300 mb-6 whitespace-pre-wrap">{popup}</p>
+            <button
+              onClick={() => setPopup(null)}
+              className="bg-gradient-to-r from-amber-400 to-orange-500 text-black font-semibold px-6 py-3 rounded-xl hover:opacity-90 transition-opacity w-full"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="border-b border-[#222] px-5 py-4">
         <div className="max-w-xl mx-auto flex items-center justify-between">
