@@ -46,11 +46,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteMediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const dailyRef = useRef<any>(null);
+  const dailyFrameRef = useRef<HTMLIFrameElement | null>(null);
   const pausePollRef = useRef(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tabVisibleRef = useRef(true);
@@ -58,8 +55,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const prevMsgCountRef = useRef(-1);
   const handleCallSignalRef = useRef<(s: any) => void>(() => {});
   const hasInteractedRef = useRef(false);
-
-  // Sounds disabled — fixing call audio first
 
   useEffect(() => {
     const saved = localStorage.getItem("chat_user");
@@ -275,151 +270,82 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // ── WebRTC — no ICE trickle, send all candidates bundled with offer/answer ──
-  function createPC(): RTCPeerConnection {
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-      ],
-    });
-    // Only handle ontrack once
-    let trackReceived = false;
-    pc.ontrack = (e) => {
-      if (trackReceived) return;
-      trackReceived = true;
-      remoteStreamRef.current = e.streams[0];
-      if (remoteMediaRef.current) {
-        remoteMediaRef.current.srcObject = e.streams[0];
-      }
-      setHasRemoteStream(true);
-    };
-    return pc;
-  }
-
-  // Wait for all ICE candidates to be gathered
-  function waitForIceComplete(pc: RTCPeerConnection): Promise<void> {
-    return new Promise((resolve) => {
-      if (pc.iceGatheringState === "complete") { resolve(); return; }
-      const check = () => { if (pc.iceGatheringState === "complete") { pc.removeEventListener("icegatheringstatechange", check); resolve(); } };
-      pc.addEventListener("icegatheringstatechange", check);
-      // Timeout fallback
-      setTimeout(resolve, 2000);
-    });
-  }
-
-  function cleanupCall() {
-    if (pcRef.current) { try { pcRef.current.close(); } catch {} pcRef.current = null; }
-    if (localStreamRef.current) { localStreamRef.current.getTracks().forEach((t) => t.stop()); localStreamRef.current = null; }
-    if (remoteMediaRef.current) { remoteMediaRef.current.srcObject = null; }
-    remoteStreamRef.current = null; remoteMediaRef.current = null;
-  }
-
+  // ── Daily.co Calls ──
   async function startCall(type: "audio" | "video") {
     if (!me || !otherUser) return;
-    cleanupCall(); // Kill any existing call first
     setCallType(type); setCalling(true); setMuted(false);
-    startCallingSound();
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true }, sampleRate: { ideal: 48000 }, channelCount: { ideal: 1 } }, video: type === "video" });
-    } catch (err) {
-      alert("Could not access microphone/camera. Please allow permissions.");
-      setCalling(false); stopCallingSound();
-      return;
-    }
-    localStreamRef.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    const pc = createPC();
-    pcRef.current = pc;
-    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    // Wait for all ICE candidates to be included in the offer
-    await waitForIceComplete(pc);
+    // Create Daily room
+    const res = await fetch("/api/chat/daily-room", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId }),
+    });
+    const room = await res.json();
+    if (!room.ok) { setCalling(false); return; }
 
-    // Send offer with all ICE candidates baked in
-    await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { offer: pc.localDescription, callType: type } }) });
+    // Import Daily dynamically
+    const DailyIframe = (await import("@daily-co/daily-js")).default;
+    const daily = DailyIframe.createCallObject({
+      audioSource: true,
+      videoSource: type === "video",
+    });
+    dailyRef.current = daily;
+
+    daily.on("participant-joined", () => { setHasRemoteStream(true); setCalling(false); });
+    daily.on("participant-left", () => { endCall(); });
+    daily.on("left-meeting", () => { endCall(); });
+
+    await daily.join({ url: room.url, userName: me.display_name, startVideoOff: type === "audio", startAudioOff: false });
     setInCall(true);
+
+    // Signal the other user
+    await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { roomUrl: room.url, callType: type } }) });
   }
 
   async function answerCall(signal: any) {
     if (!me) return;
-    cleanupCall(); // Kill any existing call first
-    setIncomingCall(null); stopRingtone(); setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true }, sampleRate: { ideal: 48000 }, channelCount: { ideal: 1 } }, video: signal.payload.callType === "video" });
-    } catch (err) {
-      alert("Could not access microphone/camera. Please allow permissions.");
-      setInCall(false);
-      return;
-    }
-    localStreamRef.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    const pc = createPC();
-    pcRef.current = pc;
-    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+    setIncomingCall(null); stopRingtone();
+    setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
 
-    await pc.setRemoteDescription(new RTCSessionDescription(signal.payload.offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    // Wait for all ICE candidates
-    await waitForIceComplete(pc);
+    const DailyIframe = (await import("@daily-co/daily-js")).default;
+    const daily = DailyIframe.createCallObject({
+      audioSource: true,
+      videoSource: signal.payload.callType === "video",
+    });
+    dailyRef.current = daily;
 
-    // Send answer with all ICE candidates baked in
-    await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer: pc.localDescription } }) });
+    daily.on("participant-joined", () => { setHasRemoteStream(true); });
+    daily.on("participant-left", () => { endCall(); });
+    daily.on("left-meeting", () => { endCall(); });
+
+    await daily.join({ url: signal.payload.roomUrl, userName: me.display_name, startVideoOff: signal.payload.callType === "audio", startAudioOff: false });
   }
 
-
-  const endingCallRef = useRef(false);
-
   function endCall() {
-    if (endingCallRef.current) return;
-    endingCallRef.current = true;
-    stopCallingSound();
-    stopRingtone();
-    cleanupCall();
+    if (dailyRef.current) {
+      try { dailyRef.current.leave(); dailyRef.current.destroy(); } catch {}
+      dailyRef.current = null;
+    }
     setInCall(false); setCalling(false); setMuted(false); setHasRemoteStream(false);
-    setTimeout(() => { endingCallRef.current = false; }, 1000);
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
   }
 
   function toggleMute() {
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setMuted(!audioTrack.enabled);
-      }
+    if (dailyRef.current) {
+      const newMuted = !muted;
+      dailyRef.current.setLocalAudio(!newMuted);
+      setMuted(newMuted);
     }
   }
 
   function toggleVideo() {
-    if (!localStreamRef.current || !pcRef.current) return;
-    const videoTrack = localStreamRef.current.getVideoTracks()[0];
-    if (videoTrack) {
-      // Already has video — toggle it
-      videoTrack.enabled = !videoTrack.enabled;
-      setCallType(videoTrack.enabled ? "video" : "audio");
-    } else {
-      // No video track — add one
-      navigator.mediaDevices.getUserMedia({ video: true }).then((newStream) => {
-        const newVideoTrack = newStream.getVideoTracks()[0];
-        localStreamRef.current!.addTrack(newVideoTrack);
-        const sender = pcRef.current!.getSenders().find((s) => s.track?.kind === "video");
-        if (sender) {
-          sender.replaceTrack(newVideoTrack);
-        } else {
-          pcRef.current!.addTrack(newVideoTrack, localStreamRef.current!);
-        }
-        if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-        setCallType("video");
-      }).catch(() => {});
+    if (dailyRef.current) {
+      const newType = callType === "video" ? "audio" : "video";
+      dailyRef.current.setLocalVideo(newType === "video");
+      setCallType(newType);
     }
   }
 
@@ -428,12 +354,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       if (s.type === "call-start") {
         setIncomingCall(s);
         playRingtone();
-      } else if (s.type === "call-answer") {
-        if (pcRef.current) {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(s.payload.answer));
-        }
-        setCalling(false);
-        stopCallingSound();
       } else if (s.type === "call-end") {
         endCall();
       }
@@ -442,7 +362,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     }
   }
 
-  // Keep ref updated so realtime subscription always has latest version
   handleCallSignalRef.current = handleCallSignal;
 
 
@@ -537,57 +456,34 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         </div>
       )}
 
-      {/* In-call UI */}
+      {/* In-call UI — Daily.co handles audio/video */}
       {inCall && (
         <div className="fixed inset-0 z-[100] bg-[#0b141a] flex flex-col items-center justify-center" style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {callType === "video" ? (
-            <>
-              <video ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) { el.srcObject = remoteStreamRef.current; el.volume = speakerOn ? 0.8 : 0; } }} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
-              <video ref={(el) => { if (el && localStreamRef.current) el.srcObject = localStreamRef.current; }} autoPlay playsInline muted className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 w-28 h-40 object-cover rounded-xl border-2 border-[#2a3942]" />
-            </>
-          ) : (
-            <div className="text-center">
-              <div className="w-24 h-24 bg-[#2a3942] rounded-full flex items-center justify-center text-4xl mx-auto mb-4 text-[#8696a0]">
-                {otherUser?.display_name?.[0]?.toUpperCase()}
-              </div>
-              <h3 className="text-white text-xl font-semibold">{otherUser?.display_name}</h3>
-              <p className="text-[#8696a0] text-sm mt-1">{calling ? "Calling..." : "In call"}</p>
-              <audio ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) { el.srcObject = remoteStreamRef.current; el.volume = speakerOn ? 0.8 : 0; } }} autoPlay playsInline muted={!speakerOn} />
+          <div className="text-center">
+            <div className="w-24 h-24 bg-[#2a3942] rounded-full flex items-center justify-center text-4xl mx-auto mb-4 text-[#8696a0]">
+              {otherUser?.display_name?.[0]?.toUpperCase()}
             </div>
-          )}
+            <h3 className="text-white text-xl font-semibold">{otherUser?.display_name}</h3>
+            <p className="text-[#8696a0] text-sm mt-1">
+              {calling ? "Connecting..." : hasRemoteStream ? "In call" : "Waiting..."}
+            </p>
+          </div>
           <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))] flex gap-4 items-center">
-            {/* Speaker */}
-            <button onClick={() => {
-              setSpeakerOn(!speakerOn);
-              if (remoteMediaRef.current) {
-                remoteMediaRef.current.muted = speakerOn;
-                remoteMediaRef.current.volume = speakerOn ? 0 : 0.8;
-              }
-            }} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${!speakerOn ? "bg-white" : "bg-[#ffffff30]"}`}>
-              {speakerOn ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-              )}
-            </button>
-            {/* Mute */}
             <button onClick={toggleMute} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${muted ? "bg-white" : "bg-[#ffffff30]"}`}>
               {muted ? (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
               ) : (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
               )}
             </button>
-            {/* End call */}
             <button onClick={endCall} className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center active:bg-red-600 shadow-lg">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
             </button>
-            {/* Video toggle */}
             <button onClick={toggleVideo} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${callType === "video" ? "bg-white" : "bg-[#ffffff30]"}`}>
               {callType === "video" ? (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               ) : (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               )}
             </button>
           </div>
