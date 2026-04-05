@@ -49,6 +49,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidate[]>([]);
   const pausePollRef = useRef(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tabVisibleRef = useRef(true);
@@ -57,6 +58,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const msgSoundRef = useRef<HTMLAudioElement | null>(null);
   const prevMsgCountRef = useRef(-1);
+  const handleCallSignalRef = useRef<(s: any) => void>(() => {});
   const hasInteractedRef = useRef(false);
 
   useEffect(() => {
@@ -242,7 +244,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "call_signals", filter: `to_id=eq.${me.id}` },
         (payload: any) => {
-          handleCallSignal(payload.new);
+          handleCallSignalRef.current(payload.new);
         }
       )
       .subscribe();
@@ -442,12 +444,32 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer } }) });
   }
 
+  function playEndCallSound() {
+    try {
+      const ctx = getAudioCtx();
+      [600, 500, 400].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.12, ctx.currentTime + i * 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.12 + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + i * 0.12);
+        osc.stop(ctx.currentTime + i * 0.12 + 0.15);
+      });
+    } catch {}
+  }
+
   function endCall() {
     if (pcRef.current) pcRef.current.close();
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
     pcRef.current = null; localStreamRef.current = null;
+    pendingCandidatesRef.current = [];
     setInCall(false); setCalling(false); setMuted(false);
     stopCallingSound(); stopRingtone();
+    playEndCallSound();
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
   }
@@ -486,20 +508,43 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     }
   }
 
+  async function flushCandidates() {
+    if (!pcRef.current || !pcRef.current.remoteDescription) return;
+    for (const c of pendingCandidatesRef.current) {
+      try { await pcRef.current.addIceCandidate(c); } catch {}
+    }
+    pendingCandidatesRef.current = [];
+  }
+
   async function handleCallSignal(s: any) {
-    if (s.type === "call-start" && !inCall) {
-      setIncomingCall(s);
-      playRingtone();
-    } else if (s.type === "call-answer" && pcRef.current) {
-      try { await pcRef.current.setRemoteDescription(s.payload.answer); } catch {}
-      setCalling(false);
-      stopCallingSound();
-    } else if (s.type === "ice-candidate" && pcRef.current) {
-      try { await pcRef.current.addIceCandidate(s.payload); } catch {}
-    } else if (s.type === "call-end") {
-      endCall();
+    try {
+      if (s.type === "call-start") {
+        setIncomingCall(s);
+        playRingtone();
+      } else if (s.type === "call-answer") {
+        if (pcRef.current) {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(s.payload.answer));
+          await flushCandidates();
+        }
+        setCalling(false);
+        stopCallingSound();
+      } else if (s.type === "ice-candidate") {
+        if (pcRef.current && pcRef.current.remoteDescription && s.payload) {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(s.payload));
+        } else if (s.payload) {
+          // Queue candidate until remote description is set
+          pendingCandidatesRef.current.push(new RTCIceCandidate(s.payload));
+        }
+      } else if (s.type === "call-end") {
+        endCall();
+      }
+    } catch (err) {
+      console.error("Call signal error:", err);
     }
   }
+
+  // Keep ref updated so realtime subscription always has latest version
+  handleCallSignalRef.current = handleCallSignal;
 
   function formatTime(ts: string) {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -545,21 +590,48 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   return (
     <div className="fixed inset-0 flex flex-col bg-[#0b141a] max-w-2xl mx-auto">
       {/* Incoming call */}
+      <style>{`
+        @keyframes ring-pulse { 0%,100% { transform: scale(1); opacity: 0.6; } 50% { transform: scale(1.5); opacity: 0; } }
+        @keyframes shake { 0%,100% { transform: rotate(0deg); } 25% { transform: rotate(-15deg); } 75% { transform: rotate(15deg); } }
+        @keyframes slide-up { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+      `}</style>
       {incomingCall && (
-        <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center">
-          <div className="bg-[#202c33] rounded-2xl p-8 text-center">
-            <div className="w-20 h-20 bg-[#2a3942] rounded-full flex items-center justify-center text-3xl mx-auto mb-4 text-[#8696a0]">
-              {otherUser?.display_name?.[0]?.toUpperCase()}
+        <div className="fixed inset-0 z-[110] bg-black/85 flex items-center justify-center">
+          <div className="bg-[#202c33] rounded-3xl p-8 text-center w-[280px]">
+            {/* Avatar with pulsing ring */}
+            <div className="relative w-24 h-24 mx-auto mb-5">
+              <div className="absolute inset-0 rounded-full bg-[#00a884]" style={{ animation: "ring-pulse 1.5s ease-out infinite" }} />
+              <div className="absolute inset-0 rounded-full bg-[#00a884]" style={{ animation: "ring-pulse 1.5s ease-out infinite 0.5s" }} />
+              <div className="relative w-24 h-24 bg-[#2a3942] rounded-full flex items-center justify-center text-3xl font-bold text-[#8696a0]">
+                {otherUser?.display_name?.[0]?.toUpperCase()}
+              </div>
             </div>
             <h3 className="text-white text-lg font-semibold mb-1">{otherUser?.display_name}</h3>
-            <p className="text-[#8696a0] text-sm mb-6">Incoming {incomingCall.payload?.callType || "audio"} call...</p>
-            <div className="flex gap-6 justify-center">
-              <button onClick={() => { setIncomingCall(null); stopRingtone(); }} className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
-              </button>
-              <button onClick={() => answerCall(incomingCall)} className="w-14 h-14 bg-[#00a884] rounded-full flex items-center justify-center hover:bg-[#00906f]">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56-.35-.12-.74-.03-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/></svg>
-              </button>
+            <p className="text-[#8696a0] text-sm mb-8">
+              {incomingCall.payload?.callType === "video" ? "Video" : "Voice"} call...
+            </p>
+            <div className="flex justify-center gap-12">
+              {/* Reject */}
+              <div className="text-center">
+                <button
+                  onClick={() => { setIncomingCall(null); stopRingtone(); playEndCallSound(); }}
+                  className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center active:bg-red-600 shadow-lg shadow-red-500/30"
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
+                </button>
+                <span className="text-[0.65rem] text-[#8696a0] mt-2 block">Decline</span>
+              </div>
+              {/* Accept */}
+              <div className="text-center">
+                <button
+                  onClick={() => answerCall(incomingCall)}
+                  className="w-16 h-16 bg-[#00a884] rounded-full flex items-center justify-center active:bg-[#00906f] shadow-lg shadow-[#00a884]/30"
+                  style={{ animation: "slide-up 1s ease-in-out infinite" }}
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="white" style={{ animation: "shake 0.5s ease-in-out infinite" }}><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56-.35-.12-.74-.03-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/></svg>
+                </button>
+                <span className="text-[0.65rem] text-[#8696a0] mt-2 block">Accept</span>
+              </div>
             </div>
           </div>
         </div>
