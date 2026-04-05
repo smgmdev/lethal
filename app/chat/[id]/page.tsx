@@ -303,7 +303,17 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       room.on(RoomEvent.ParticipantConnected, () => { setHasRemoteStream(true); setCalling(false); });
       room.on(RoomEvent.ParticipantDisconnected, () => { endCall(); });
       room.on(RoomEvent.Disconnected, () => { endCall(); });
-      // LiveKit v2 handles audio playback automatically — no manual attach needed
+      room.on(RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
+        if (track.kind === "audio") {
+          document.querySelectorAll(".lk-audio").forEach(el => el.remove());
+          const el = track.attach();
+          el.className = "lk-audio";
+          document.body.appendChild(el);
+        }
+      });
+      room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
+        track.detach().forEach((el: HTMLElement) => el.remove());
+      });
 
       await room.connect(tokenData.url, tokenData.token);
       await room.localParticipant.setMicrophoneEnabled(true);
@@ -351,7 +361,17 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       room.on(RoomEvent.ParticipantConnected, () => { setHasRemoteStream(true); });
       room.on(RoomEvent.ParticipantDisconnected, () => { endCall(); });
       room.on(RoomEvent.Disconnected, () => { endCall(); });
-      // LiveKit v2 handles audio playback automatically — no manual attach needed
+      room.on(RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
+        if (track.kind === "audio") {
+          document.querySelectorAll(".lk-audio").forEach(el => el.remove());
+          const el = track.attach();
+          el.className = "lk-audio";
+          document.body.appendChild(el);
+        }
+      });
+      room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
+        track.detach().forEach((el: HTMLElement) => el.remove());
+      });
 
       await room.connect(tokenData.url, tokenData.token);
       await room.localParticipant.setMicrophoneEnabled(true);
@@ -369,6 +389,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       try { livekitRoomRef.current.disconnect(); } catch {}
       livekitRoomRef.current = null;
     }
+    document.querySelectorAll(".lk-audio").forEach(el => el.remove());
     setInCall(false); setCalling(false); setMuted(false); setHasRemoteStream(false);
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
