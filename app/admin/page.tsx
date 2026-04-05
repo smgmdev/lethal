@@ -127,7 +127,7 @@ export default function AdminPage() {
   }, [visitors]);
 
   function flyTo(lat: number, lng: number) {
-    if (mapInstance.current) mapInstance.current.setView([lat, lng], 14);
+    if (mapInstance.current) mapInstance.current.setView([lat, lng], 18);
   }
 
   const gpsCount = visitors.filter((v) => v.source === "gps").length;
