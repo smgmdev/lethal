@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { use } from "react";
 import { supabaseClient } from "@/lib/supabase-client";
-import Daily from "@daily-co/daily-js";
 
 interface Message {
   id: number;
@@ -286,7 +285,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (!room.ok) { setCalling(false); return; }
 
     try {
-    const daily = Daily.createCallObject({
+    const DailyModule = await import("@daily-co/daily-js");
+    const DailyCall = DailyModule.default || DailyModule;
+    const daily = DailyCall.createCallObject({
       audioSource: true,
       videoSource: type === "video",
     });
@@ -304,7 +305,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { roomUrl: room.url, callType: type } }) });
     } catch (err) {
       console.error("Daily call error:", err);
-      alert("Failed to start call. Please try again.");
+      alert("Call error: " + (err instanceof Error ? err.message : String(err)));
       setCalling(false);
     }
   }
@@ -315,7 +316,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
 
     try {
-    const daily = Daily.createCallObject({
+    const DailyModule = await import("@daily-co/daily-js");
+    const DailyCall = DailyModule.default || DailyModule;
+    const daily = DailyCall.createCallObject({
       audioSource: true,
       videoSource: signal.payload.callType === "video",
     });
@@ -328,7 +331,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     await daily.join({ url: signal.payload.roomUrl, userName: me.display_name, startVideoOff: signal.payload.callType === "audio", startAudioOff: false });
     } catch (err) {
       console.error("Daily answer error:", err);
-      alert("Failed to join call. Please try again.");
+      alert("Join error: " + (err instanceof Error ? err.message : String(err)));
       setInCall(false);
     }
   }
