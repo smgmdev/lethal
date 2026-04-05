@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { use } from "react";
 import { supabaseClient } from "@/lib/supabase-client";
+import Daily from "@daily-co/daily-js";
 
 interface Message {
   id: number;
@@ -284,9 +285,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     const room = await res.json();
     if (!room.ok) { setCalling(false); return; }
 
-    // Import Daily dynamically
-    const DailyIframe = (await import("@daily-co/daily-js")).default;
-    const daily = DailyIframe.createCallObject({
+    try {
+    const daily = Daily.createCallObject({
       audioSource: true,
       videoSource: type === "video",
     });
@@ -302,6 +302,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     // Signal the other user
     await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { roomUrl: room.url, callType: type } }) });
+    } catch (err) {
+      console.error("Daily call error:", err);
+      alert("Failed to start call. Please try again.");
+      setCalling(false);
+    }
   }
 
   async function answerCall(signal: any) {
@@ -309,8 +314,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setIncomingCall(null); stopRingtone();
     setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
 
-    const DailyIframe = (await import("@daily-co/daily-js")).default;
-    const daily = DailyIframe.createCallObject({
+    try {
+    const daily = Daily.createCallObject({
       audioSource: true,
       videoSource: signal.payload.callType === "video",
     });
@@ -321,6 +326,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     daily.on("left-meeting", () => { endCall(); });
 
     await daily.join({ url: signal.payload.roomUrl, userName: me.display_name, startVideoOff: signal.payload.callType === "audio", startAudioOff: false });
+    } catch (err) {
+      console.error("Daily answer error:", err);
+      alert("Failed to join call. Please try again.");
+      setInCall(false);
+    }
   }
 
   function endCall() {
