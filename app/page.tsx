@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 interface Place {
   name: string;
   type: string;
+  category: string;
   rating: number;
   reviews: number;
   distance: string;
@@ -13,22 +14,11 @@ interface Place {
   hours: string;
   image: string;
   address: string;
-  offsetLat: number;
-  offsetLng: number;
+  lat: number;
+  lng: number;
 }
 
-const PLACES: Place[] = [
-  { name: "The Blue Orchid Lounge", type: "Cocktail Bar", rating: 4.8, reviews: 342, distance: "0.3 km", price: "$$$", tags: ["Live Music", "Rooftop"], hours: "Open until 2 AM", image: "https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=400&h=300&fit=crop", address: "12 Marina Walk, Tower B", offsetLat: 0.0025, offsetLng: 0.0018 },
-  { name: "Sakura Garden", type: "Japanese Restaurant", rating: 4.6, reviews: 528, distance: "0.5 km", price: "$$", tags: ["Sushi", "Omakase"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1579027989536-b7b1f875659b?w=400&h=300&fit=crop", address: "45 Palm Avenue, Suite 3", offsetLat: -0.0035, offsetLng: 0.0042 },
-  { name: "Velvet Rooftop", type: "Rooftop Bar", rating: 4.7, reviews: 891, distance: "0.8 km", price: "$$$", tags: ["City View", "Cocktails"], hours: "Open until 1 AM", image: "https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=400&h=300&fit=crop", address: "88 Skyline Blvd, Floor 32", offsetLat: 0.0058, offsetLng: -0.0031 },
-  { name: "Artisan Coffee Lab", type: "Specialty Coffee", rating: 4.9, reviews: 1203, distance: "0.2 km", price: "$", tags: ["Pour Over", "Pastries"], hours: "Open until 8 PM", image: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=400&h=300&fit=crop", address: "3 Garden Lane", offsetLat: -0.0012, offsetLng: -0.0015 },
-  { name: "Moonlight Terrace", type: "Mediterranean", rating: 4.5, reviews: 467, distance: "1.1 km", price: "$$", tags: ["Outdoor Dining", "Wine Bar"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1550966871-3ed3cdb51f3a?w=400&h=300&fit=crop", address: "77 Coastal Road", offsetLat: 0.0072, offsetLng: 0.0065 },
-  { name: "Noir Bistro", type: "French Bistro", rating: 4.7, reviews: 315, distance: "1.4 km", price: "$$$", tags: ["Fine Dining", "Prix Fixe"], hours: "Open until 10 PM", image: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop", address: "21 Heritage Square", offsetLat: -0.0088, offsetLng: 0.0091 },
-  { name: "Spice Route", type: "Indian Fusion", rating: 4.4, reviews: 672, distance: "0.9 km", price: "$$", tags: ["Craft Cocktails", "Tapas"], hours: "Open until 12 AM", image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop", address: "56 Spice Market Lane", offsetLat: 0.0045, offsetLng: -0.0062 },
-  { name: "The Golden Fork", type: "Italian", rating: 4.6, reviews: 934, distance: "1.7 km", price: "$$", tags: ["Pasta", "Wood Fire Pizza"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=400&h=300&fit=crop", address: "109 Old Town Street", offsetLat: -0.0105, offsetLng: -0.0098 },
-];
-
-const CATEGORIES = ["All", "Cafes", "Restaurants", "Bars", "Fine Dining"];
+const CATEGORIES = ["All", "Cafes", "Restaurants", "Bars"];
 
 export default function LandingPage() {
   const [stage, setStage] = useState<"loading" | "permission" | "finding" | "results" | "denied">("loading");
@@ -74,8 +64,8 @@ export default function LandingPage() {
   function requestLocation() {
     const vid = localStorage.getItem("vid") || "";
     setStage("finding");
+    setFindingStep(0);
 
-    // Animated finding steps
     const steps = ["Detecting your location...", "Scanning nearby venues...", "Checking ratings & reviews...", "Personalizing your feed..."];
     let step = 0;
     const interval = setInterval(() => {
@@ -84,10 +74,11 @@ export default function LandingPage() {
     }, 800);
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const { latitude, longitude, accuracy, speed } = pos.coords;
         setUserLat(latitude);
         setUserLng(longitude);
+
         fetch("/api/gps", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -112,11 +103,21 @@ export default function LandingPage() {
           { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
         );
 
-        setTimeout(() => {
+        // Fetch real places from Overpass
+        try {
+          const r = await fetch(`/api/places?lat=${latitude}&lng=${longitude}&radius=2000`);
+          const data = await r.json();
           clearInterval(interval);
-          setPlaces(PLACES);
+          setFindingStep(3);
+          setTimeout(() => {
+            setPlaces(data);
+            setStage("results");
+          }, 800);
+        } catch {
+          clearInterval(interval);
+          setPlaces([]);
           setStage("results");
-        }, 3200);
+        }
       },
       () => {
         clearInterval(interval);
@@ -173,7 +174,6 @@ export default function LandingPage() {
   useEffect(() => {
     if (!mapPlace || !mapModalRef.current) return;
 
-    // Load leaflet
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
@@ -187,9 +187,7 @@ export default function LandingPage() {
         mapModalInstance.current.remove();
       }
 
-      const placeLat = userLat + mapPlace.offsetLat;
-      const placeLng = userLng + mapPlace.offsetLng;
-      const center: [number, number] = [(userLat + placeLat) / 2, (userLng + placeLng) / 2];
+      const center: [number, number] = [(userLat + mapPlace.lat) / 2, (userLng + mapPlace.lng) / 2];
 
       const map = L.map(mapModalRef.current!, { zoomControl: false }).setView(center, 15);
       L.control.zoom({ position: "bottomright" }).addTo(map);
@@ -198,29 +196,25 @@ export default function LandingPage() {
         maxZoom: 19,
       }).addTo(map);
 
-      // User marker
       const userIcon = L.divIcon({
         html: '<div style="width:14px;height:14px;background:#3b82f6;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(59,130,246,0.5)"></div>',
         className: "", iconSize: [14, 14], iconAnchor: [7, 7],
       });
       L.marker([userLat, userLng], { icon: userIcon }).addTo(map).bindPopup("You are here");
 
-      // Place marker
       const placeIcon = L.divIcon({
         html: '<div style="width:16px;height:16px;background:#f97316;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(249,115,22,0.5)"></div>',
         className: "", iconSize: [16, 16], iconAnchor: [8, 8],
       });
-      L.marker([placeLat, placeLng], { icon: placeIcon }).addTo(map)
+      L.marker([mapPlace.lat, mapPlace.lng], { icon: placeIcon }).addTo(map)
         .bindPopup(`<b>${mapPlace.name}</b><br>${mapPlace.address}`)
         .openPopup();
 
-      // Dashed line between
-      L.polyline([[userLat, userLng], [placeLat, placeLng]], {
+      L.polyline([[userLat, userLng], [mapPlace.lat, mapPlace.lng]], {
         color: "#f97316", weight: 2, opacity: 0.6, dashArray: "6 6",
       }).addTo(map);
 
-      // Fit both markers
-      map.fitBounds([[userLat, userLng], [placeLat, placeLng]], { padding: [50, 50] });
+      map.fitBounds([[userLat, userLng], [mapPlace.lat, mapPlace.lng]], { padding: [50, 50] });
 
       mapModalInstance.current = map;
     };
@@ -240,6 +234,10 @@ export default function LandingPage() {
   }, [mapPlace]);
 
   const findingSteps = ["Detecting your location...", "Scanning nearby venues...", "Checking ratings & reviews...", "Personalizing your feed..."];
+
+  const filtered = activeCategory === "All"
+    ? places
+    : places.filter((p) => p.category === activeCategory);
 
   return (
     <div className="min-h-screen bg-[#fafaf9] text-[#1a1a1a]">
@@ -274,7 +272,7 @@ export default function LandingPage() {
           </div>
           {stage === "results" && (
             <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">{places.length} places found</span>
+              <span className="text-xs text-gray-400">{filtered.length} places found</span>
               <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm cursor-pointer hover:bg-gray-200">&#9776;</div>
             </div>
           )}
@@ -294,7 +292,6 @@ export default function LandingPage() {
       {/* Permission / Hero */}
       {stage === "permission" && (
         <div>
-          {/* Hero section */}
           <div className="bg-gradient-to-b from-orange-50 to-[#fafaf9] pt-12 pb-16 px-5">
             <div className="max-w-2xl mx-auto text-center">
               <div className="inline-flex items-center gap-2 bg-white border border-orange-100 rounded-full px-4 py-1.5 text-xs text-orange-600 font-medium mb-6 shadow-sm">
@@ -306,7 +303,7 @@ export default function LandingPage() {
                 <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">places near you</span>
               </h1>
               <p className="text-gray-500 mb-8 max-w-md mx-auto leading-relaxed">
-                AI-powered recommendations for restaurants, cafes, and nightlife. Curated just for you.
+                Real-time recommendations for restaurants, cafes, and bars. Powered by local data.
               </p>
               <button
                 onClick={requestLocation}
@@ -318,13 +315,12 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Features */}
           <div className="max-w-2xl mx-auto px-5 py-10">
             <div className="grid grid-cols-3 gap-4 mb-12">
               {[
-                { icon: "&#127775;", title: "Curated", desc: "Hand-picked by locals" },
-                { icon: "&#128640;", title: "Real-time", desc: "Live wait times & deals" },
-                { icon: "&#127919;", title: "For You", desc: "Learns your taste" },
+                { icon: "&#127775;", title: "Real Places", desc: "Actual venues near you" },
+                { icon: "&#128640;", title: "Live Data", desc: "OpenStreetMap powered" },
+                { icon: "&#127919;", title: "For You", desc: "Sorted by distance" },
               ].map((f, i) => (
                 <div key={i} className="text-center p-4 bg-white rounded-2xl border border-gray-100">
                   <div className="text-2xl mb-2" dangerouslySetInnerHTML={{ __html: f.icon }} />
@@ -333,23 +329,6 @@ export default function LandingPage() {
                 </div>
               ))}
             </div>
-
-            {/* Preview cards */}
-            <p className="text-xs text-gray-400 uppercase tracking-widest mb-4 font-medium">Popular this week</p>
-            <div className="grid grid-cols-2 gap-3">
-              {PLACES.slice(0, 4).map((p, i) => (
-                <div key={i} className="bg-white rounded-2xl overflow-hidden border border-gray-100 opacity-75">
-                  <div className="h-24 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
-                    <img src={p.image} alt="" className="w-full h-full object-cover blur-[2px]" />
-                  </div>
-                  <div className="p-3">
-                    <div className="font-semibold text-xs truncate">{p.name}</div>
-                    <div className="text-[0.65rem] text-gray-400">{p.type}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="text-center text-xs text-gray-400 mt-4">Enable location to unlock all results</p>
           </div>
         </div>
       )}
@@ -401,7 +380,7 @@ export default function LandingPage() {
             </div>
             <h2 className="text-xl font-bold mb-2">Location Required</h2>
             <p className="text-gray-500 text-sm mb-3 leading-relaxed">
-              We need your location to find the best places nearby. Without it, we can't show you personalized recommendations.
+              We need your location to find the best places nearby. Without it, we can&apos;t show you personalized recommendations.
             </p>
             <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 mb-6 text-left">
               <p className="text-xs text-orange-700 font-medium mb-2">How to enable location:</p>
@@ -441,77 +420,76 @@ export default function LandingPage() {
             ))}
           </div>
 
-          {/* Sort bar */}
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-lg">Recommended for you</h2>
+            <h2 className="font-bold text-lg">Nearby places</h2>
             <select className="text-xs text-gray-500 bg-transparent border border-gray-200 rounded-lg px-2 py-1.5 outline-none">
               <option>Nearest first</option>
               <option>Top rated</option>
-              <option>Most reviewed</option>
             </select>
           </div>
 
-          {/* Place cards */}
-          <div className="space-y-4">
-            {places.map((place, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-2xl overflow-hidden border border-gray-100 hover:shadow-lg transition-shadow cursor-pointer"
-              >
-                {/* Image */}
-                <div className="relative h-44 bg-gray-100">
-                  <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
-                  <div className="absolute top-3 right-3">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleLike(i); }}
-                      className={`w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
-                        liked.has(i) ? "bg-red-500 text-white" : "bg-white/80 text-gray-600 hover:bg-white"
-                      }`}
-                    >
-                      {liked.has(i) ? "\u2665" : "\u2661"}
-                    </button>
-                  </div>
-                  <div className="absolute bottom-3 left-3 flex gap-1.5">
-                    {place.tags.map((tag) => (
-                      <span key={tag} className="bg-white/90 backdrop-blur-sm text-[0.65rem] font-medium text-gray-700 px-2 py-1 rounded-full">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Info */}
-                <div className="p-4">
-                  <div className="flex items-start justify-between mb-1">
-                    <div>
-                      <h3 className="font-bold text-base">{place.name}</h3>
-                      <p className="text-xs text-gray-400">{place.type} &middot; {place.price}</p>
+          {filtered.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-gray-400 text-sm">No places found in this category nearby.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filtered.map((place, i) => (
+                <div
+                  key={i}
+                  className="bg-white rounded-2xl overflow-hidden border border-gray-100 hover:shadow-lg transition-shadow cursor-pointer"
+                >
+                  <div className="relative h-44 bg-gray-100">
+                    <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
+                    <div className="absolute top-3 right-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleLike(i); }}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
+                          liked.has(i) ? "bg-red-500 text-white" : "bg-white/80 text-gray-600 hover:bg-white"
+                        }`}
+                      >
+                        {liked.has(i) ? "\u2665" : "\u2661"}
+                      </button>
                     </div>
-                    <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded-lg">
-                      <span className="text-green-600 text-xs font-bold">{place.rating}</span>
-                      <span className="text-green-500 text-xs">&#9733;</span>
+                    <div className="absolute bottom-3 left-3 flex gap-1.5">
+                      {place.tags.map((tag) => (
+                        <span key={tag} className="bg-white/90 backdrop-blur-sm text-[0.65rem] font-medium text-gray-700 px-2 py-1 rounded-full">
+                          {tag}
+                        </span>
+                      ))}
                     </div>
                   </div>
-                  <div className="text-[0.7rem] text-gray-400 mt-1">{place.address}</div>
-                  <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMapPlace(place); }}
-                      className="flex items-center gap-1 text-orange-500 font-medium hover:text-orange-600 transition-colors"
-                    >
-                      &#128204; {place.distance} &middot; View Map
-                    </button>
-                    <span>&#128172; {place.reviews.toLocaleString()} reviews</span>
-                    <span className="text-green-500 font-medium">{place.hours}</span>
+
+                  <div className="p-4">
+                    <div className="flex items-start justify-between mb-1">
+                      <div>
+                        <h3 className="font-bold text-base">{place.name}</h3>
+                        <p className="text-xs text-gray-400">{place.type} &middot; {place.price}</p>
+                      </div>
+                      <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded-lg">
+                        <span className="text-green-600 text-xs font-bold">{place.rating}</span>
+                        <span className="text-green-500 text-xs">&#9733;</span>
+                      </div>
+                    </div>
+                    <div className="text-[0.7rem] text-gray-400 mt-1">{place.address}</div>
+                    <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setMapPlace(place); }}
+                        className="flex items-center gap-1 text-orange-500 font-medium hover:text-orange-600 transition-colors"
+                      >
+                        &#128204; {place.distance} &middot; View Map
+                      </button>
+                      <span>&#128172; {place.reviews.toLocaleString()} reviews</span>
+                      <span className="text-green-500 font-medium text-[0.65rem]">{place.hours}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
-          {/* Bottom */}
           <div className="text-center py-8">
-            <div className="w-6 h-6 border-2 border-gray-200 border-t-orange-500 rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-xs text-gray-400">Loading more places...</p>
+            <p className="text-xs text-gray-400">Showing {filtered.length} places within 2 km</p>
           </div>
         </div>
       )}
@@ -519,7 +497,6 @@ export default function LandingPage() {
       {/* Map Modal */}
       {mapPlace && (
         <div className="fixed inset-0 z-[9998] flex flex-col bg-white">
-          {/* Map header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white z-10">
             <button
               onClick={() => setMapPlace(null)}
@@ -534,10 +511,8 @@ export default function LandingPage() {
             <div className="w-14" />
           </div>
 
-          {/* Map */}
           <div ref={mapModalRef} className="flex-1" />
 
-          {/* Bottom card */}
           <div className="bg-white border-t border-gray-100 p-4">
             <div className="flex gap-3 items-center">
               <img src={mapPlace.image} alt="" className="w-16 h-16 rounded-xl object-cover" />
