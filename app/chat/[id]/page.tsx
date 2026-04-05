@@ -150,131 +150,58 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     playTone(800, 0.1, "sine", 2, 0.05);
   }
 
-  // Generate a WAV data URI for a tone
-  function generateToneWav(freqs: number[], durations: number[], sampleRate = 22050): string {
-    let totalSamples = 0;
-    const segments: Float32Array[] = [];
-    for (let i = 0; i < freqs.length; i++) {
-      const samples = Math.floor(sampleRate * durations[i]);
-      const seg = new Float32Array(samples);
-      for (let s = 0; s < samples; s++) {
-        const t = s / sampleRate;
-        const env = Math.max(0, 1 - t / durations[i]);
-        seg[s] = Math.sin(2 * Math.PI * freqs[i] * t) * 0.3 * env;
-      }
-      segments.push(seg);
-      totalSamples += samples;
-      // Add gap
-      if (i < freqs.length - 1) {
-        const gap = new Float32Array(Math.floor(sampleRate * 0.05));
-        segments.push(gap);
-        totalSamples += gap.length;
-      }
-    }
-    // Build WAV
-    const buffer = new ArrayBuffer(44 + totalSamples * 2);
-    const view = new DataView(buffer);
-    const writeStr = (o: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
-    writeStr(0, "RIFF"); view.setUint32(4, 36 + totalSamples * 2, true); writeStr(8, "WAVE");
-    writeStr(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-    writeStr(36, "data"); view.setUint32(40, totalSamples * 2, true);
-    let offset = 44;
-    for (const seg of segments) {
-      for (let i = 0; i < seg.length; i++) {
-        view.setInt16(offset, Math.max(-32768, Math.min(32767, seg[i] * 32767)), true);
-        offset += 2;
-      }
-    }
-    const blob = new Blob([buffer], { type: "audio/wav" });
-    return URL.createObjectURL(blob);
-  }
-
-  const callingSoundUrl = useRef<string | null>(null);
-  const ringtoneSoundUrl = useRef<string | null>(null);
-  const preloadedRingtone = useRef<HTMLAudioElement | null>(null);
-  const preloadedCalling = useRef<HTMLAudioElement | null>(null);
-
-  // Generate sound URLs + pre-create Audio elements
-  useEffect(() => {
-    callingSoundUrl.current = generateToneWav([440], [0.8]);
-    ringtoneSoundUrl.current = generateToneWav([523, 659, 784], [0.25, 0.25, 0.35]);
-
-    // Pre-create audio elements
-    preloadedRingtone.current = new Audio(ringtoneSoundUrl.current);
-    preloadedRingtone.current.loop = true;
-    preloadedRingtone.current.volume = 0.7;
-
-    preloadedCalling.current = new Audio(callingSoundUrl.current);
-    preloadedCalling.current.loop = true;
-    preloadedCalling.current.volume = 0.5;
-
-    // Unlock audio on first user interaction (play silent then pause)
-    function unlock() {
-      if (preloadedRingtone.current) {
-        preloadedRingtone.current.muted = true;
-        preloadedRingtone.current.play().then(() => {
-          preloadedRingtone.current!.pause();
-          preloadedRingtone.current!.muted = false;
-          preloadedRingtone.current!.currentTime = 0;
-        }).catch(() => {});
-      }
-      if (preloadedCalling.current) {
-        preloadedCalling.current.muted = true;
-        preloadedCalling.current.play().then(() => {
-          preloadedCalling.current!.pause();
-          preloadedCalling.current!.muted = false;
-          preloadedCalling.current!.currentTime = 0;
-        }).catch(() => {});
-      }
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("touchstart", unlock);
-      window.removeEventListener("keydown", unlock);
-    }
-    window.addEventListener("click", unlock);
-    window.addEventListener("touchstart", unlock);
-    window.addEventListener("keydown", unlock);
-
-    return () => {
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("touchstart", unlock);
-      window.removeEventListener("keydown", unlock);
-      if (callingSoundUrl.current) URL.revokeObjectURL(callingSoundUrl.current);
-      if (ringtoneSoundUrl.current) URL.revokeObjectURL(ringtoneSoundUrl.current);
-    };
-  }, []);
+  const callingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function startCallingSound() {
     stopCallingSound();
-    if (preloadedCalling.current) {
-      preloadedCalling.current.currentTime = 0;
-      preloadedCalling.current.play().catch(() => {});
-      callingAudioRef.current = preloadedCalling.current;
-    }
+    const play = () => {
+      try {
+        const ctx = getAudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 440;
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
+      } catch {}
+    };
+    play();
+    callingIntervalRef.current = setInterval(play, 2500);
   }
 
   function stopCallingSound() {
-    if (callingAudioRef.current) {
-      callingAudioRef.current.pause();
-      callingAudioRef.current.currentTime = 0;
-      callingAudioRef.current = null;
+    if (callingIntervalRef.current) {
+      clearInterval(callingIntervalRef.current);
+      callingIntervalRef.current = null;
     }
   }
 
   function playRingtone() {
     stopRingtone();
-    if (preloadedRingtone.current) {
-      preloadedRingtone.current.currentTime = 0;
-      preloadedRingtone.current.play().catch(() => {});
-      ringtoneAudioRef.current = preloadedRingtone.current;
-    }
+    const play = () => {
+      try {
+        const ctx = getAudioCtx();
+        [523, 659, 784].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.2, ctx.currentTime + i * 0.15);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.25);
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + i * 0.15); osc.stop(ctx.currentTime + i * 0.15 + 0.25);
+        });
+      } catch {}
+    };
+    play();
+    ringtoneIntervalRef.current = setInterval(play, 1500);
   }
 
   function stopRingtone() {
-    if (ringtoneAudioRef.current) {
-      ringtoneAudioRef.current.pause();
-      ringtoneAudioRef.current.currentTime = 0;
-      ringtoneAudioRef.current = null;
+    if (ringtoneIntervalRef.current) {
+      clearInterval(ringtoneIntervalRef.current);
+      ringtoneIntervalRef.current = null;
     }
   }
 
@@ -302,6 +229,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       loadMessages();
       loadOtherUser();
       checkTyping();
+      pollCallSignalsFallback();
     }, 800);
     const hb = setInterval(sendHeartbeat, 10000);
 
@@ -512,27 +440,20 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer } }) });
   }
 
-  const endCallSoundUrl = useRef<string | null>(null);
-  useEffect(() => {
-    endCallSoundUrl.current = generateToneWav([600, 500, 400], [0.12, 0.12, 0.15]);
-    return () => { if (endCallSoundUrl.current) URL.revokeObjectURL(endCallSoundUrl.current); };
-  }, []);
-
-  const endCallAudioRef = useRef<HTMLAudioElement | null>(null);
-
   function playEndCallSound() {
-    // Stop any previous end call sound
-    if (endCallAudioRef.current) {
-      endCallAudioRef.current.pause();
-      endCallAudioRef.current = null;
-    }
-    if (!endCallSoundUrl.current) return;
-    const audio = new Audio(endCallSoundUrl.current);
-    audio.loop = false;
-    audio.volume = 0.5;
-    audio.onended = () => { endCallAudioRef.current = null; };
-    audio.play().catch(() => {});
-    endCallAudioRef.current = audio;
+    try {
+      const ctx = getAudioCtx();
+      [600, 480, 360].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.12, ctx.currentTime + i * 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.2);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + i * 0.15);
+        osc.stop(ctx.currentTime + i * 0.15 + 0.2);
+      });
+    } catch {}
   }
 
   const endingCallRef = useRef(false);
@@ -624,6 +545,18 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   // Keep ref updated so realtime subscription always has latest version
   handleCallSignalRef.current = handleCallSignal;
+
+  // Fallback polling for call signals (in case Realtime misses them)
+  async function pollCallSignalsFallback() {
+    if (!me) return;
+    try {
+      const r = await fetch(`/api/chat/call?userId=${me.id}`);
+      const signals = await r.json();
+      for (const s of signals) {
+        handleCallSignalRef.current(s);
+      }
+    } catch {}
+  }
 
   function formatTime(ts: string) {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
