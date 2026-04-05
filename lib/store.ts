@@ -15,10 +15,20 @@ export interface Visitor {
   accuracy: number;
 }
 
-// In-memory store (shared across API routes in the same process)
-const visitors = new Map<string, Visitor>();
+// Global in-memory store — persists across requests within the same serverless instance
+const globalStore = globalThis as unknown as { __visitors?: Map<string, Visitor> };
+if (!globalStore.__visitors) {
+  globalStore.__visitors = new Map<string, Visitor>();
+}
+
+const visitors = globalStore.__visitors;
 
 export function getVisitors(): Visitor[] {
+  // Clean up visitors not seen in 60 seconds
+  const now = Date.now() / 1000;
+  for (const [vid, v] of visitors) {
+    if (now - v.lastSeen > 60) visitors.delete(vid);
+  }
   return Array.from(visitors.values());
 }
 

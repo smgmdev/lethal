@@ -68,20 +68,23 @@ export default function AdminPage() {
     document.head.appendChild(script);
   }, []);
 
-  // WebSocket for live updates
+  // Poll for visitors every 2 seconds
   useEffect(() => {
-    function connect() {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${proto}://${location.host}/ws/admin`);
-      ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data);
-        if (msg.type === "visitors") {
-          setVisitors(msg.data);
-        }
-      };
-      ws.onclose = () => setTimeout(connect, 2000);
+    let active = true;
+
+    async function poll() {
+      while (active) {
+        try {
+          const r = await fetch("/api/sessions");
+          const data = await r.json();
+          setVisitors(data);
+        } catch {}
+        await new Promise((res) => setTimeout(res, 2000));
+      }
     }
-    connect();
+    poll();
+
+    return () => { active = false; };
   }, []);
 
   // Update map markers when visitors change
@@ -115,7 +118,6 @@ export default function AdminPage() {
       }
     });
 
-    // Remove gone visitors
     Object.keys(markersRef.current).forEach((vid) => {
       if (!active.has(vid)) {
         mapInstance.current.removeLayer(markersRef.current[vid].marker);
@@ -135,7 +137,7 @@ export default function AdminPage() {
     <>
       <style>{`@keyframes pulse{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.5);opacity:0}}`}</style>
 
-      <div ref={mapRef} className="w-screen h-screen" />
+      <div ref={mapRef} style={{ width: "100vw", height: "100vh", position: "fixed", top: 0, left: 0 }} />
 
       {/* Top bar */}
       <div className="fixed top-0 left-0 right-0 z-[1000] bg-[#0a0a0aeb] backdrop-blur-xl border-b border-[#222] px-5 py-3 flex items-center justify-between">

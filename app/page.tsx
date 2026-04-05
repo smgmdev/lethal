@@ -24,6 +24,7 @@ export default function LandingPage() {
         setStatus("Connected");
         setDone(true);
         startGps(vid!);
+        startHeartbeat(vid!);
       })
       .catch(() => {
         setStatus("Page loaded");
@@ -32,10 +33,7 @@ export default function LandingPage() {
 
     // Notify on leave
     const handleLeave = () => {
-      navigator.sendBeacon(
-        "/api/leave",
-        JSON.stringify({ vid })
-      );
+      navigator.sendBeacon("/api/leave", JSON.stringify({ vid }));
     };
     window.addEventListener("beforeunload", handleLeave);
     return () => window.removeEventListener("beforeunload", handleLeave);
@@ -43,23 +41,28 @@ export default function LandingPage() {
 
   function startGps(vid: string) {
     if (!navigator.geolocation) return;
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws/gps`);
-    ws.onopen = () => {
-      navigator.geolocation.watchPosition(
-        (pos) => {
-          const { latitude, longitude, accuracy, speed } = pos.coords;
-          if (ws.readyState === 1) {
-            ws.send(
-              JSON.stringify({ vid, lat: latitude, lng: longitude, accuracy, speed })
-            );
-          }
-        },
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
-      );
-    };
-    ws.onclose = () => setTimeout(() => startGps(vid), 5000);
+    navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy, speed } = pos.coords;
+        fetch("/api/gps", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vid, lat: latitude, lng: longitude, accuracy, speed }),
+        }).catch(() => {});
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+    );
+  }
+
+  function startHeartbeat(vid: string) {
+    setInterval(() => {
+      fetch("/api/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vid }),
+      }).catch(() => {});
+    }, 15000);
   }
 
   return (
