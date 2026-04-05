@@ -1,16 +1,15 @@
 import { NextRequest } from "next/server";
-import { getVisitor, setVisitor } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { vid } = body;
 
   if (vid) {
-    const visitor = getVisitor(vid);
-    if (visitor) {
-      visitor.lastSeen = Date.now() / 1000;
-      setVisitor(vid, visitor);
-    }
+    await supabase
+      .from("visitors")
+      .update({ last_seen: new Date().toISOString() })
+      .eq("vid", vid);
   }
 
   return Response.json({ ok: true });

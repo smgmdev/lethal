@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { geolocateIp, parseUserAgent } from "@/lib/geo";
-import { setVisitor, addLocationEntry } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -14,9 +14,9 @@ export async function POST(request: NextRequest) {
 
   const geo = await geolocateIp(ip);
   const { device, browser } = parseUserAgent(ua);
-  const now = Date.now() / 1000;
 
-  const visitor = {
+  // Upsert visitor
+  await supabase.from("visitors").upsert({
     vid,
     ip,
     lat: geo.lat,
@@ -26,25 +26,22 @@ export async function POST(request: NextRequest) {
     isp: geo.isp,
     device,
     browser,
-    visitTime: now,
-    lastSeen: now,
-    source: "ip" as const,
+    source: "ip",
     speed: null,
     accuracy: 0,
-    history: [],
-  };
+    visit_time: new Date().toISOString(),
+    last_seen: new Date().toISOString(),
+  });
 
-  setVisitor(vid, visitor);
-
-  // Save initial IP location to history
+  // Save IP location to history
   if (geo.lat !== 0 || geo.lng !== 0) {
-    addLocationEntry(vid, {
+    await supabase.from("location_history").insert({
+      vid,
       lat: geo.lat,
       lng: geo.lng,
       accuracy: 0,
       speed: null,
       source: "ip",
-      timestamp: now,
     });
   }
 

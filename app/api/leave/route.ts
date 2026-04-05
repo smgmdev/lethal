@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
-import { removeVisitor } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  if (body.vid) removeVisitor(body.vid);
+  if (body.vid) {
+    await supabase.from("visitors").delete().eq("vid", body.vid);
+  }
   return Response.json({ ok: true });
 }

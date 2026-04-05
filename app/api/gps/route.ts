@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getVisitor, setVisitor, addLocationEntry } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -7,26 +7,28 @@ export async function POST(request: NextRequest) {
 
   if (!vid) return Response.json({ error: "vid required" }, { status: 400 });
 
-  const visitor = getVisitor(vid);
-  if (visitor) {
-    visitor.lat = lat;
-    visitor.lng = lng;
-    visitor.accuracy = accuracy || 0;
-    visitor.speed = speed ?? null;
-    visitor.source = "gps";
-    visitor.lastSeen = Date.now() / 1000;
-    setVisitor(vid, visitor);
-
-    // Save to history
-    addLocationEntry(vid, {
+  // Update visitor's current position
+  await supabase
+    .from("visitors")
+    .update({
       lat,
       lng,
       accuracy: accuracy || 0,
       speed: speed ?? null,
       source: "gps",
-      timestamp: Date.now() / 1000,
-    });
-  }
+      last_seen: new Date().toISOString(),
+    })
+    .eq("vid", vid);
+
+  // Save to history
+  await supabase.from("location_history").insert({
+    vid,
+    lat,
+    lng,
+    accuracy: accuracy || 0,
+    speed: speed ?? null,
+    source: "gps",
+  });
 
   return Response.json({ ok: true });
 }
