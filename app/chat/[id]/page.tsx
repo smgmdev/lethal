@@ -36,6 +36,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [inCall, setInCall] = useState(false);
   const [callType, setCallType] = useState<"audio" | "video">("audio");
+  const [muted, setMuted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -47,6 +48,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tabVisibleRef = useRef(true);
   const visibleSinceRef = useRef(Date.now());
+  const callingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
+  const msgSoundRef = useRef<HTMLAudioElement | null>(null);
+  const prevMsgCountRef = useRef(0);
   const hasInteractedRef = useRef(false);
 
   useEffect(() => {
@@ -82,6 +87,97 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       window.removeEventListener("touchstart", onInteract);
     };
   }, []);
+
+  // Generate sounds using Web Audio API
+  function playTone(freq: number, duration: number, type: OscillatorType = "sine", repeat = 1, gap = 0.3) {
+    try {
+      const ctx = new AudioContext();
+      let t = ctx.currentTime;
+      for (let i = 0; i < repeat; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.15, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + duration);
+        t += duration + gap;
+      }
+    } catch {}
+  }
+
+  function playMessageSound() {
+    playTone(800, 0.1, "sine", 2, 0.05);
+  }
+
+  function startCallingSound() {
+    if (callingAudioRef.current) return;
+    const ctx = new AudioContext();
+    const interval = setInterval(() => {
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 440;
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.8);
+      } catch {}
+    }, 2000);
+    callingAudioRef.current = { stop: () => clearInterval(interval) } as any;
+  }
+
+  function stopCallingSound() {
+    if (callingAudioRef.current) {
+      (callingAudioRef.current as any).stop?.();
+      callingAudioRef.current = null;
+    }
+  }
+
+  function playRingtone() {
+    if (ringtoneAudioRef.current) return;
+    const ctx = new AudioContext();
+    const interval = setInterval(() => {
+      try {
+        [523, 659, 784].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.12, ctx.currentTime + i * 0.15);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.15 + 0.3);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + i * 0.15);
+          osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+        });
+      } catch {}
+    }, 1500);
+    ringtoneAudioRef.current = { stop: () => clearInterval(interval) } as any;
+  }
+
+  function stopRingtone() {
+    if (ringtoneAudioRef.current) {
+      (ringtoneAudioRef.current as any).stop?.();
+      ringtoneAudioRef.current = null;
+    }
+  }
+
+  // Play sound on new message from other user
+  useEffect(() => {
+    if (!me || messages.length === 0) return;
+    const otherMsgs = messages.filter((m) => m.sender_id !== me.id);
+    if (otherMsgs.length > prevMsgCountRef.current) {
+      playMessageSound();
+    }
+    prevMsgCountRef.current = otherMsgs.length;
+  }, [messages, me]);
 
   useEffect(() => {
     if (!me) return;
@@ -233,7 +329,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   // ── WebRTC ──
   async function startCall(type: "audio" | "video") {
     if (!me || !otherUser) return;
-    setCallType(type); setCalling(true);
+    setCallType(type); setCalling(true); setMuted(false);
+    startCallingSound();
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: type === "video" });
@@ -264,7 +361,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   async function answerCall(signal: any) {
     if (!me) return;
-    setIncomingCall(null); setCallType(signal.payload.callType || "audio"); setInCall(true);
+    setIncomingCall(null); stopRingtone(); setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: signal.payload.callType === "video" });
@@ -297,17 +394,54 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (pcRef.current) pcRef.current.close();
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
     pcRef.current = null; localStreamRef.current = null;
-    setInCall(false); setCalling(false);
+    setInCall(false); setCalling(false); setMuted(false);
+    stopCallingSound(); stopRingtone();
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
+  }
+
+  function toggleMute() {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setMuted(!audioTrack.enabled);
+      }
+    }
+  }
+
+  function toggleVideo() {
+    if (!localStreamRef.current || !pcRef.current) return;
+    const videoTrack = localStreamRef.current.getVideoTracks()[0];
+    if (videoTrack) {
+      // Already has video — toggle it
+      videoTrack.enabled = !videoTrack.enabled;
+      setCallType(videoTrack.enabled ? "video" : "audio");
+    } else {
+      // No video track — add one
+      navigator.mediaDevices.getUserMedia({ video: true }).then((newStream) => {
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        localStreamRef.current!.addTrack(newVideoTrack);
+        const sender = pcRef.current!.getSenders().find((s) => s.track?.kind === "video");
+        if (sender) {
+          sender.replaceTrack(newVideoTrack);
+        } else {
+          pcRef.current!.addTrack(newVideoTrack, localStreamRef.current!);
+        }
+        if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+        setCallType("video");
+      }).catch(() => {});
+    }
   }
 
   async function handleCallSignal(s: any) {
     if (s.type === "call-start" && !inCall) {
       setIncomingCall(s);
+      playRingtone();
     } else if (s.type === "call-answer" && pcRef.current) {
       try { await pcRef.current.setRemoteDescription(s.payload.answer); } catch {}
       setCalling(false);
+      stopCallingSound();
     } else if (s.type === "ice-candidate" && pcRef.current) {
       try { await pcRef.current.addIceCandidate(s.payload); } catch {}
     } else if (s.type === "call-end") {
@@ -359,7 +493,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
             <h3 className="text-white text-lg font-semibold mb-1">{otherUser?.display_name}</h3>
             <p className="text-[#8696a0] text-sm mb-6">Incoming {incomingCall.payload?.callType || "audio"} call...</p>
             <div className="flex gap-6 justify-center">
-              <button onClick={() => setIncomingCall(null)} className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600">
+              <button onClick={() => { setIncomingCall(null); stopRingtone(); }} className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
               </button>
               <button onClick={() => answerCall(incomingCall)} className="w-14 h-14 bg-[#00a884] rounded-full flex items-center justify-center hover:bg-[#00906f]">
@@ -388,9 +522,26 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               <audio ref={remoteAudioRef} autoPlay playsInline />
             </div>
           )}
-          <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))]">
+          <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))] flex gap-5 items-center">
+            {/* Mute */}
+            <button onClick={toggleMute} className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ${muted ? "bg-white" : "bg-[#ffffff30]"}`}>
+              {muted ? (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              ) : (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              )}
+            </button>
+            {/* End call */}
             <button onClick={endCall} className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center active:bg-red-600 shadow-lg">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
+            </button>
+            {/* Video toggle */}
+            <button onClick={toggleVideo} className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ${callType === "video" ? "bg-white" : "bg-[#ffffff30]"}`}>
+              {callType === "video" ? (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              ) : (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              )}
             </button>
           </div>
         </div>
