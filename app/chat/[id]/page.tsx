@@ -56,7 +56,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const callingAudioRef = useRef<HTMLAudioElement | null>(null);
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const msgSoundRef = useRef<HTMLAudioElement | null>(null);
-  const prevMsgCountRef = useRef(0);
+  const prevMsgCountRef = useRef(-1);
   const hasInteractedRef = useRef(false);
 
   useEffect(() => {
@@ -212,6 +212,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   useEffect(() => {
     if (!me || messages.length === 0) return;
     const otherMsgs = messages.filter((m) => m.sender_id !== me.id);
+    if (prevMsgCountRef.current === -1) {
+      // First load — just set the count, don't play sound
+      prevMsgCountRef.current = otherMsgs.length;
+      return;
+    }
     if (otherMsgs.length > prevMsgCountRef.current) {
       playMessageSound();
     }
