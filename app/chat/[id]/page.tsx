@@ -40,6 +40,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const [inCall, setInCall] = useState(false);
   const [callType, setCallType] = useState<"audio" | "video">("audio");
   const [muted, setMuted] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(true);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -321,7 +322,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     startCallingSound();
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: type === "video" });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true }, sampleRate: { ideal: 48000 }, channelCount: { ideal: 1 } }, video: type === "video" });
     } catch (err) {
       alert("Could not access microphone/camera. Please allow permissions.");
       setCalling(false); stopCallingSound();
@@ -350,7 +351,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setIncomingCall(null); stopRingtone(); setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: signal.payload.callType === "video" });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true }, sampleRate: { ideal: 48000 }, channelCount: { ideal: 1 } }, video: signal.payload.callType === "video" });
     } catch (err) {
       alert("Could not access microphone/camera. Please allow permissions.");
       setInCall(false);
@@ -541,7 +542,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         <div className="fixed inset-0 z-[100] bg-[#0b141a] flex flex-col items-center justify-center" style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {callType === "video" ? (
             <>
-              <video ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline className="w-full h-full object-cover" />
+              <video ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) { el.srcObject = remoteStreamRef.current; el.volume = speakerOn ? 0.8 : 0; } }} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
               <video ref={(el) => { if (el && localStreamRef.current) el.srcObject = localStreamRef.current; }} autoPlay playsInline muted className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 w-28 h-40 object-cover rounded-xl border-2 border-[#2a3942]" />
             </>
           ) : (
@@ -551,12 +552,26 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               </div>
               <h3 className="text-white text-xl font-semibold">{otherUser?.display_name}</h3>
               <p className="text-[#8696a0] text-sm mt-1">{calling ? "Calling..." : "In call"}</p>
-              <audio ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) el.srcObject = remoteStreamRef.current; }} autoPlay playsInline />
+              <audio ref={(el) => { remoteMediaRef.current = el; if (el && remoteStreamRef.current) { el.srcObject = remoteStreamRef.current; el.volume = speakerOn ? 0.8 : 0; } }} autoPlay playsInline muted={!speakerOn} />
             </div>
           )}
-          <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))] flex gap-5 items-center">
+          <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))] flex gap-4 items-center">
+            {/* Speaker */}
+            <button onClick={() => {
+              setSpeakerOn(!speakerOn);
+              if (remoteMediaRef.current) {
+                remoteMediaRef.current.muted = speakerOn;
+                remoteMediaRef.current.volume = speakerOn ? 0 : 0.8;
+              }
+            }} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${!speakerOn ? "bg-white" : "bg-[#ffffff30]"}`}>
+              {speakerOn ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+              )}
+            </button>
             {/* Mute */}
-            <button onClick={toggleMute} className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ${muted ? "bg-white" : "bg-[#ffffff30]"}`}>
+            <button onClick={toggleMute} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${muted ? "bg-white" : "bg-[#ffffff30]"}`}>
               {muted ? (
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
               ) : (
@@ -568,7 +583,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
             </button>
             {/* Video toggle */}
-            <button onClick={toggleVideo} className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ${callType === "video" ? "bg-white" : "bg-[#ffffff30]"}`}>
+            <button onClick={toggleVideo} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${callType === "video" ? "bg-white" : "bg-[#ffffff30]"}`}>
               {callType === "video" ? (
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               ) : (
