@@ -468,7 +468,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (!msg.file_url) return null;
     const type = msg.file_type || "";
     if (type.startsWith("image/"))
-      return <img src={msg.file_url} alt="" className="rounded-lg mt-1 cursor-pointer" style={{ maxWidth: "220px", width: "100%", height: "auto" }} onClick={() => window.open(msg.file_url!, "_blank")} />;
+      return (
+        <div className="mt-1 overflow-hidden rounded-lg" style={{ maxWidth: "220px", maxHeight: "300px" }}>
+          <img src={msg.file_url} alt="" className="block cursor-pointer" style={{ width: "100%", height: "auto", maxHeight: "300px", objectFit: "contain" }} onClick={() => window.open(msg.file_url!, "_blank")} />
+        </div>
+      );
     if (type.startsWith("video/"))
       return <video src={msg.file_url} controls playsInline className="rounded-lg mt-1" style={{ maxWidth: "min(280px, 100%)" }} />;
     if (type.startsWith("audio/"))
@@ -588,7 +592,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
             <div key={msg.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
               <div className={`px-3 py-1.5 rounded-lg text-sm ${
                 isMine ? "bg-[#005c4b] text-white rounded-tr-none" : "bg-[#202c33] text-white rounded-tl-none"
-              }`} style={{ maxWidth: msg.file_url ? "260px" : "75%" }}>
+              }`} style={{ maxWidth: msg.file_url ? "260px" : "75%", overflow: "hidden" }}>
                 {msg.text && <p className="whitespace-pre-wrap break-words m-0">{msg.text}</p>}
                 {renderFile(msg)}
                 <div className={`text-[0.6rem] mt-0.5 flex items-center justify-end gap-1 ${isMine ? "text-[#ffffff60]" : "text-[#8696a0]"}`}>
