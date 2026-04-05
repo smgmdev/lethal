@@ -176,6 +176,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       clearInterval(callingIntervalRef.current);
       callingIntervalRef.current = null;
     }
+    // Kill any lingering oscillators by closing and recreating context
+    if (audioCtxRef.current && !ringtoneIntervalRef.current) {
+      try { audioCtxRef.current.close(); } catch {}
+      audioCtxRef.current = null;
+    }
   }
 
   function playRingtone() {
@@ -202,6 +207,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (ringtoneIntervalRef.current) {
       clearInterval(ringtoneIntervalRef.current);
       ringtoneIntervalRef.current = null;
+    }
+    if (audioCtxRef.current && !callingIntervalRef.current) {
+      try { audioCtxRef.current.close(); } catch {}
+      audioCtxRef.current = null;
     }
   }
 
@@ -245,7 +254,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       )
       .subscribe();
 
-    return () => { clearInterval(i); clearInterval(hb); supabaseClient.removeChannel(channel); };
+    return () => {
+      clearInterval(i); clearInterval(hb); supabaseClient.removeChannel(channel);
+      stopCallingSound(); stopRingtone();
+      if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
+    };
   }, [me]);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
