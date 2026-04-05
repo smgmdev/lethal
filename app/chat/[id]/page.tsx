@@ -505,9 +505,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     const color = msg.read ? "#53bdeb" : "#ffffff80";
     if (msg.read || msg.delivered) {
       return (
-        <svg width="16" height="11" viewBox="0 0 16 11" fill="none" className="inline-block ml-1">
-          <path d="M11.07 0.73L4.34 7.46L1.71 4.83L0.29 6.24L4.34 10.29L12.49 2.14L11.07 0.73Z" fill={color}/>
-          <path d="M14.07 0.73L7.34 7.46L6.56 6.68L5.14 8.1L7.34 10.29L15.49 2.14L14.07 0.73Z" fill={color}/>
+        <svg width="18" height="11" viewBox="0 0 18 11" fill="none" className="inline-block ml-1">
+          <path d="M9.07 0.73L2.34 7.46L0.29 5.41L-0.71 6.83L2.34 10.29L10.49 2.14L9.07 0.73Z" fill={color}/>
+          <path d="M15.07 0.73L8.34 7.46L7.06 6.18L5.64 7.6L8.34 10.29L16.49 2.14L15.07 0.73Z" fill={color}/>
         </svg>
       );
     }
