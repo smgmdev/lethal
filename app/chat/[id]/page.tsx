@@ -305,7 +305,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { roomUrl: room.url, callType: type } }) });
     } catch (err) {
       console.error("Daily call error:", err);
-      alert("Call error: " + (err instanceof Error ? err.message : String(err)));
+      alert("Call error: " + JSON.stringify(err, null, 2));
       setCalling(false);
     }
   }
@@ -331,7 +331,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     await daily.join({ url: signal.payload.roomUrl, userName: me.display_name, startVideoOff: signal.payload.callType === "audio", startAudioOff: false });
     } catch (err) {
       console.error("Daily answer error:", err);
-      alert("Join error: " + (err instanceof Error ? err.message : String(err)));
+      alert("Join error: " + JSON.stringify(err, null, 2));
       setInCall(false);
     }
   }
