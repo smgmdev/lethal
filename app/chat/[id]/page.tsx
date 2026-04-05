@@ -54,12 +54,36 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tabVisibleRef = useRef(true);
   const visibleSinceRef = useRef(Date.now());
-  const callingAudioRef = useRef<HTMLAudioElement | null>(null);
-  const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
-  const msgSoundRef = useRef<HTMLAudioElement | null>(null);
   const prevMsgCountRef = useRef(-1);
   const handleCallSignalRef = useRef<(s: any) => void>(() => {});
   const hasInteractedRef = useRef(false);
+
+  // Sound refs — single Audio element per sound, reused
+  const soundsRef = useRef<{ message: HTMLAudioElement; ringtone: HTMLAudioElement; calling: HTMLAudioElement; endcall: HTMLAudioElement } | null>(null);
+
+  // Initialize sounds once
+  useEffect(() => {
+    soundsRef.current = {
+      message: new Audio("/sounds/message.wav"),
+      ringtone: new Audio("/sounds/ringtone.wav"),
+      calling: new Audio("/sounds/calling.wav"),
+      endcall: new Audio("/sounds/endcall.wav"),
+    };
+    soundsRef.current.ringtone.loop = true;
+    soundsRef.current.calling.loop = true;
+    soundsRef.current.endcall.loop = false;
+    soundsRef.current.message.loop = false;
+    soundsRef.current.message.volume = 0.5;
+    soundsRef.current.ringtone.volume = 0.7;
+    soundsRef.current.calling.volume = 0.5;
+    soundsRef.current.endcall.volume = 0.5;
+
+    return () => {
+      if (soundsRef.current) {
+        Object.values(soundsRef.current).forEach(a => { a.pause(); a.currentTime = 0; });
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("chat_user");
@@ -95,123 +119,39 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     };
   }, []);
 
-  // Shared AudioContext — initialized on first user interaction
-  const audioCtxRef = useRef<AudioContext | null>(null);
-
-  function getAudioCtx(): AudioContext {
-    if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
-      audioCtxRef.current = new AudioContext();
-    }
-    if (audioCtxRef.current.state === "suspended") {
-      audioCtxRef.current.resume();
-    }
-    return audioCtxRef.current;
-  }
-
-  // Warm up audio context on first interaction
-  useEffect(() => {
-    function warmUp() {
-      getAudioCtx();
-      window.removeEventListener("click", warmUp);
-      window.removeEventListener("touchstart", warmUp);
-      window.removeEventListener("keydown", warmUp);
-    }
-    window.addEventListener("click", warmUp);
-    window.addEventListener("touchstart", warmUp);
-    window.addEventListener("keydown", warmUp);
-    return () => {
-      window.removeEventListener("click", warmUp);
-      window.removeEventListener("touchstart", warmUp);
-      window.removeEventListener("keydown", warmUp);
-    };
-  }, []);
-
-  function playTone(freq: number, duration: number, type: OscillatorType = "sine", repeat = 1, gap = 0.3) {
-    try {
-      const ctx = getAudioCtx();
-      let t = ctx.currentTime;
-      for (let i = 0; i < repeat; i++) {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = type;
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.15, t);
-        gain.gain.exponentialRampToValueAtTime(0.01, t + duration);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(t);
-        osc.stop(t + duration);
-        t += duration + gap;
-      }
-    } catch {}
-  }
-
   function playMessageSound() {
-    playTone(800, 0.1, "sine", 2, 0.05);
+    if (!soundsRef.current) return;
+    const s = soundsRef.current.message;
+    s.currentTime = 0;
+    s.play().catch(() => {});
   }
-
-  const callingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const ringtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function startCallingSound() {
     stopCallingSound();
-    const play = () => {
-      try {
-        const ctx = getAudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.value = 440;
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
-      } catch {}
-    };
-    play();
-    callingIntervalRef.current = setInterval(play, 2500);
+    if (!soundsRef.current) return;
+    const s = soundsRef.current.calling;
+    s.currentTime = 0;
+    s.play().catch(() => {});
   }
 
   function stopCallingSound() {
-    if (callingIntervalRef.current) {
-      clearInterval(callingIntervalRef.current);
-      callingIntervalRef.current = null;
-    }
-    // Kill any lingering oscillators by closing and recreating context
-    if (audioCtxRef.current && !ringtoneIntervalRef.current) {
-      try { audioCtxRef.current.close(); } catch {}
-      audioCtxRef.current = null;
-    }
+    if (!soundsRef.current) return;
+    soundsRef.current.calling.pause();
+    soundsRef.current.calling.currentTime = 0;
   }
 
   function playRingtone() {
     stopRingtone();
-    const play = () => {
-      try {
-        const ctx = getAudioCtx();
-        [523, 659, 784].forEach((freq, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.frequency.value = freq;
-          gain.gain.setValueAtTime(0.2, ctx.currentTime + i * 0.15);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.25);
-          osc.connect(gain); gain.connect(ctx.destination);
-          osc.start(ctx.currentTime + i * 0.15); osc.stop(ctx.currentTime + i * 0.15 + 0.25);
-        });
-      } catch {}
-    };
-    play();
-    ringtoneIntervalRef.current = setInterval(play, 1500);
+    if (!soundsRef.current) return;
+    const s = soundsRef.current.ringtone;
+    s.currentTime = 0;
+    s.play().catch(() => {});
   }
 
   function stopRingtone() {
-    if (ringtoneIntervalRef.current) {
-      clearInterval(ringtoneIntervalRef.current);
-      ringtoneIntervalRef.current = null;
-    }
-    if (audioCtxRef.current && !callingIntervalRef.current) {
-      try { audioCtxRef.current.close(); } catch {}
-      audioCtxRef.current = null;
-    }
+    if (!soundsRef.current) return;
+    soundsRef.current.ringtone.pause();
+    soundsRef.current.ringtone.currentTime = 0;
   }
 
   // Play sound on new message from other user
@@ -257,7 +197,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     return () => {
       clearInterval(i); clearInterval(hb); supabaseClient.removeChannel(channel);
       stopCallingSound(); stopRingtone();
-      if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
     };
   }, [me]);
 
@@ -456,22 +395,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const endCallPlayedRef = useRef(false);
 
   function playEndCallSound() {
-    if (endCallPlayedRef.current) return;
+    if (endCallPlayedRef.current || !soundsRef.current) return;
     endCallPlayedRef.current = true;
-    try {
-      const ctx = getAudioCtx();
-      const t = ctx.currentTime;
-      [600, 480, 360].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.12, t + i * 0.15);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.15 + 0.2);
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(t + i * 0.15);
-        osc.stop(t + i * 0.15 + 0.2);
-      });
-    } catch {}
+    const s = soundsRef.current.endcall;
+    s.currentTime = 0;
+    s.play().catch(() => {});
     setTimeout(() => { endCallPlayedRef.current = false; }, 2000);
   }
 
