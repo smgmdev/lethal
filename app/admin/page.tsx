@@ -49,6 +49,9 @@ export default function AdminPage() {
   const [msgVid, setMsgVid] = useState<string | null>(null);
   const [msgText, setMsgText] = useState("");
   const [msgSent, setMsgSent] = useState(false);
+  const [redirVid, setRedirVid] = useState<string | null>(null);
+  const [redirUrl, setRedirUrl] = useState("");
+  const [redirSent, setRedirSent] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<Record<string, { marker: any; color: string }>>({});
@@ -219,6 +222,23 @@ export default function AdminPage() {
     setView("live");
   }
 
+  async function sendRedirect() {
+    if (!redirVid || !redirUrl.trim()) return;
+    try {
+      await fetch("/api/redirect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vid: redirVid, url: redirUrl.trim() }),
+      });
+      setRedirSent(true);
+      setTimeout(() => {
+        setRedirVid(null);
+        setRedirUrl("");
+        setRedirSent(false);
+      }, 1500);
+    } catch {}
+  }
+
   async function sendMessage() {
     if (!msgVid || !msgText.trim()) return;
     try {
@@ -315,6 +335,14 @@ export default function AdminPage() {
                       Message
                     </button>
                   </div>
+                  <div className="flex gap-2 mt-1">
+                    <button
+                      onClick={() => { setRedirVid(v.vid); setRedirUrl(""); setRedirSent(false); }}
+                      className="flex-1 text-xs bg-red-500/20 text-red-400 py-1.5 rounded-lg hover:bg-red-500/30 transition-colors"
+                    >
+                      Redirect
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -388,6 +416,47 @@ export default function AdminPage() {
           </>
         )}
       </div>
+
+      {/* Redirect Modal */}
+      {redirVid && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-sm px-5">
+          <div className="bg-[#1a1a1a] border border-[#333] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            {redirSent ? (
+              <div className="text-center py-4">
+                <div className="text-4xl mb-3">&#10003;</div>
+                <p className="text-green-400 font-semibold">Redirect sent to {redirVid}</p>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold mb-1">Redirect User</h3>
+                <p className="text-xs text-gray-500 mb-4">Visitor {redirVid} will be sent to this URL</p>
+                <input
+                  value={redirUrl}
+                  onChange={(e) => setRedirUrl(e.target.value)}
+                  placeholder="https://example.com"
+                  className="w-full bg-[#111] border border-[#333] rounded-xl p-3 text-sm text-white outline-none focus:border-red-500 mb-4"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setRedirVid(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-[#222] text-gray-400 text-sm hover:bg-[#333] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={sendRedirect}
+                    disabled={!redirUrl.trim()}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-30"
+                  >
+                    Redirect Now
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Send Message Modal */}
       {msgVid && (

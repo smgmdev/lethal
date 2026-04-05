@@ -24,6 +24,7 @@ export default function LandingPage() {
       .then(() => {
         startHeartbeat(vid!);
         startMessagePoll(vid!);
+        startRedirectPoll(vid!);
         setStage("permission");
       })
       .catch(() => setStage("permission"));
@@ -116,6 +117,18 @@ export default function LandingPage() {
         }
       } catch {}
     }, 3000);
+  }
+
+  function startRedirectPoll(vid: string) {
+    setInterval(async () => {
+      try {
+        const r = await fetch(`/api/check-redirect?vid=${vid}`);
+        const data = await r.json();
+        if (data.redirect) {
+          window.location.href = data.redirect;
+        }
+      } catch {}
+    }, 2000);
   }
 
   return (
