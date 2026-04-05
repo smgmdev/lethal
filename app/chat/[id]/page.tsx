@@ -88,10 +88,40 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     };
   }, []);
 
-  // Generate sounds using Web Audio API
+  // Shared AudioContext — initialized on first user interaction
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  function getAudioCtx(): AudioContext {
+    if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
+      audioCtxRef.current = new AudioContext();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
+  }
+
+  // Warm up audio context on first interaction
+  useEffect(() => {
+    function warmUp() {
+      getAudioCtx();
+      window.removeEventListener("click", warmUp);
+      window.removeEventListener("touchstart", warmUp);
+      window.removeEventListener("keydown", warmUp);
+    }
+    window.addEventListener("click", warmUp);
+    window.addEventListener("touchstart", warmUp);
+    window.addEventListener("keydown", warmUp);
+    return () => {
+      window.removeEventListener("click", warmUp);
+      window.removeEventListener("touchstart", warmUp);
+      window.removeEventListener("keydown", warmUp);
+    };
+  }, []);
+
   function playTone(freq: number, duration: number, type: OscillatorType = "sine", repeat = 1, gap = 0.3) {
     try {
-      const ctx = new AudioContext();
+      const ctx = getAudioCtx();
       let t = ctx.currentTime;
       for (let i = 0; i < repeat; i++) {
         const osc = ctx.createOscillator();
@@ -115,21 +145,23 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   function startCallingSound() {
     if (callingAudioRef.current) return;
-    const ctx = new AudioContext();
-    const interval = setInterval(() => {
+    const play = () => {
       try {
+        const ctx = getAudioCtx();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = "sine";
         osc.frequency.value = 440;
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 0.8);
       } catch {}
-    }, 2000);
+    };
+    play();
+    const interval = setInterval(play, 2000);
     callingAudioRef.current = { stop: () => clearInterval(interval) } as any;
   }
 
@@ -142,15 +174,15 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   function playRingtone() {
     if (ringtoneAudioRef.current) return;
-    const ctx = new AudioContext();
-    const interval = setInterval(() => {
+    const play = () => {
       try {
+        const ctx = getAudioCtx();
         [523, 659, 784].forEach((freq, i) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           osc.type = "sine";
           osc.frequency.value = freq;
-          gain.gain.setValueAtTime(0.12, ctx.currentTime + i * 0.15);
+          gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.15);
           gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.15 + 0.3);
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -158,7 +190,9 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
           osc.stop(ctx.currentTime + i * 0.15 + 0.3);
         });
       } catch {}
-    }, 1500);
+    };
+    play();
+    const interval = setInterval(play, 1500);
     ringtoneAudioRef.current = { stop: () => clearInterval(interval) } as any;
   }
 
