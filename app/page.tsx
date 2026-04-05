@@ -175,6 +175,15 @@ export default function LandingPage() {
     }, 2000);
   }
 
+  // ESC to close map
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMapPlace(null);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
+
   // Map modal
   useEffect(() => {
     if (!mapPlace || !mapModalRef.current) return;
