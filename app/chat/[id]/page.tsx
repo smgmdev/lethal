@@ -53,12 +53,24 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (!me) return;
     loadMessages();
     loadOtherUser();
+    sendHeartbeat();
     const i = setInterval(() => {
       loadMessages();
+      loadOtherUser();
       pollCallSignals();
-    }, 1500);
-    return () => clearInterval(i);
+    }, 800);
+    const hb = setInterval(sendHeartbeat, 10000);
+    return () => { clearInterval(i); clearInterval(hb); };
   }, [me]);
+
+  async function sendHeartbeat() {
+    if (!me) return;
+    fetch("/api/chat/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: me.id }),
+    }).catch(() => {});
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -86,13 +98,25 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     const msg = text.trim();
     setText("");
 
+    // Optimistic: show message immediately
+    const tempMsg: Message = {
+      id: Date.now(),
+      conversation_id: conversationId,
+      sender_id: me.id,
+      text: msg,
+      file_url: null,
+      file_type: null,
+      file_name: null,
+      read: false,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempMsg]);
+
     await fetch("/api/chat/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, senderId: me.id, text: msg }),
     });
-
-    loadMessages();
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {

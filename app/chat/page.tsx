@@ -41,12 +41,23 @@ export default function ChatPage() {
     if (!me) return;
     loadConversations();
     loadUsers();
+    sendHeartbeat();
     const i = setInterval(() => {
       loadConversations();
       loadUsers();
-    }, 3000);
-    return () => clearInterval(i);
+    }, 1500);
+    const hb = setInterval(sendHeartbeat, 10000);
+    return () => { clearInterval(i); clearInterval(hb); };
   }, [me]);
+
+  async function sendHeartbeat() {
+    if (!me) return;
+    fetch("/api/chat/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: me.id }),
+    }).catch(() => {});
+  }
 
   async function login() {
     if (!username.trim() || !displayName.trim()) return;
