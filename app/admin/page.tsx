@@ -2,6 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 
+interface LocationEntry {
+  lat: number;
+  lng: number;
+  accuracy: number;
+  speed: number | null;
+  source: "ip" | "gps";
+  timestamp: number;
+}
+
 interface Visitor {
   vid: string;
   ip: string;
@@ -17,6 +26,7 @@ interface Visitor {
   source: "ip" | "gps";
   speed: number | null;
   accuracy: number;
+  history: LocationEntry[];
 }
 
 function ago(ts: number) {
@@ -27,11 +37,19 @@ function ago(ts: number) {
   return Math.floor(s / 3600) + "h ago";
 }
 
+function formatTime(ts: number) {
+  return new Date(ts * 1000).toLocaleString();
+}
+
 export default function AdminPage() {
   const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [selectedVid, setSelectedVid] = useState<string | null>(null);
+  const [history, setHistory] = useState<LocationEntry[]>([]);
+  const [view, setView] = useState<"live" | "history">("live");
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markersRef = useRef<Record<string, { marker: any; color: string }>>({});
+  const historyLayerRef = useRef<any>(null);
   const colorIdx = useRef(0);
   const leafletLoaded = useRef(false);
 
@@ -73,7 +91,6 @@ export default function AdminPage() {
   // Poll for visitors every 2 seconds
   useEffect(() => {
     let active = true;
-
     async function poll() {
       while (active) {
         try {
@@ -85,7 +102,6 @@ export default function AdminPage() {
       }
     }
     poll();
-
     return () => { active = false; };
   }, []);
 
@@ -128,12 +144,81 @@ export default function AdminPage() {
     });
   }, [visitors]);
 
+  // Show history trail on map
+  useEffect(() => {
+    const L = (window as any).L;
+    if (!L || !mapInstance.current) return;
+
+    // Clear previous history layer
+    if (historyLayerRef.current) {
+      mapInstance.current.removeLayer(historyLayerRef.current);
+      historyLayerRef.current = null;
+    }
+
+    if (history.length === 0 || !selectedVid) return;
+
+    const group = L.layerGroup();
+
+    // Draw trail line
+    const points = history.filter(h => h.lat !== 0 || h.lng !== 0).map(h => [h.lat, h.lng] as [number, number]);
+    if (points.length > 1) {
+      L.polyline(points, { color: "#f59e0b", weight: 3, opacity: 0.7, dashArray: "8 4" }).addTo(group);
+    }
+
+    // Draw numbered dots for each history entry
+    history.forEach((h, i) => {
+      if (h.lat === 0 && h.lng === 0) return;
+      const icon = L.divIcon({
+        html: `<div style="width:22px;height:22px;border-radius:50%;background:${i === history.length - 1 ? '#22c55e' : '#f59e0b'};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000">${i + 1}</div>`,
+        className: "",
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+      const m = L.marker([h.lat, h.lng], { icon }).addTo(group);
+      m.bindPopup(
+        `<b>#${i + 1}</b><br>
+        Lat: ${h.lat.toFixed(6)}<br>
+        Lng: ${h.lng.toFixed(6)}<br>
+        Accuracy: ${h.accuracy.toFixed(0)}m<br>
+        Source: ${h.source.toUpperCase()}<br>
+        Time: ${formatTime(h.timestamp)}`
+      );
+    });
+
+    group.addTo(mapInstance.current);
+    historyLayerRef.current = group;
+
+    // Fit map to history bounds
+    if (points.length > 0) {
+      mapInstance.current.fitBounds(L.latLngBounds(points).pad(0.2));
+    }
+  }, [history, selectedVid]);
+
   function flyTo(lat: number, lng: number) {
     if (mapInstance.current) mapInstance.current.setView([lat, lng], mapInstance.current.getMaxZoom());
   }
 
+  async function showHistory(vid: string) {
+    setSelectedVid(vid);
+    setView("history");
+    try {
+      const r = await fetch(`/api/history?vid=${vid}`);
+      const data = await r.json();
+      setHistory(data);
+    } catch {
+      setHistory([]);
+    }
+  }
+
+  function backToLive() {
+    setSelectedVid(null);
+    setHistory([]);
+    setView("live");
+  }
+
   const gpsCount = visitors.filter((v) => v.source === "gps").length;
   const ipCount = visitors.filter((v) => v.source === "ip").length;
+  const selectedVisitor = visitors.find((v) => v.vid === selectedVid);
 
   return (
     <>
@@ -153,44 +238,129 @@ export default function AdminPage() {
 
       {/* Sidebar */}
       <div className="fixed top-[52px] right-0 bottom-0 w-[360px] z-[1000] bg-[#0a0a0aeb] backdrop-blur-xl border-l border-[#222] overflow-y-auto">
-        <h3 className="px-4 pt-4 pb-2 text-xs text-gray-600 uppercase tracking-widest">
-          Active Visitors
-        </h3>
-        {visitors.length === 0 ? (
-          <div className="p-8 text-center text-gray-600 text-sm">
-            No visitors yet.<br />Share the main page URL to start tracking.
-          </div>
-        ) : (
-          visitors.map((v) => (
-            <div
-              key={v.vid}
-              onClick={() => flyTo(v.lat, v.lng)}
-              className="mx-3 my-1 p-3 bg-[#1a1a1a] rounded-xl border border-[#222] cursor-pointer hover:border-blue-500 transition-colors"
-            >
-              <div className="flex justify-between items-center mb-1">
-                <span className="font-bold text-sm">{v.vid}</span>
-                <span
-                  className={`text-[0.65rem] font-semibold px-2 py-0.5 rounded ${
-                    v.source === "gps"
-                      ? "bg-green-950 text-green-400"
-                      : "bg-blue-950 text-blue-400"
-                  }`}
+
+        {view === "live" && (
+          <>
+            <h3 className="px-4 pt-4 pb-2 text-xs text-gray-600 uppercase tracking-widest">
+              Active Visitors
+            </h3>
+            {visitors.length === 0 ? (
+              <div className="p-8 text-center text-gray-600 text-sm">
+                No visitors yet.<br />Share the main page URL to start tracking.
+              </div>
+            ) : (
+              visitors.map((v) => (
+                <div
+                  key={v.vid}
+                  className="mx-3 my-1 p-3 bg-[#1a1a1a] rounded-xl border border-[#222] cursor-pointer hover:border-blue-500 transition-colors"
                 >
-                  {v.source.toUpperCase()}
-                </span>
-              </div>
-              <div className="text-sm text-gray-300">
-                {v.city}
-                {v.country ? `, ${v.country}` : ""}
-              </div>
-              <div className="text-xs text-gray-600 flex gap-2 mt-1 flex-wrap">
-                <span>IP: {v.ip}</span>
-                <span>{v.device} / {v.browser}</span>
-                <span>{ago(v.visitTime)}</span>
-                {v.speed != null && <span>{(v.speed * 3.6).toFixed(1)} km/h</span>}
-              </div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-bold text-sm">{v.vid}</span>
+                    <span
+                      className={`text-[0.65rem] font-semibold px-2 py-0.5 rounded ${
+                        v.source === "gps"
+                          ? "bg-green-950 text-green-400"
+                          : "bg-blue-950 text-blue-400"
+                      }`}
+                    >
+                      {v.source.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="text-sm text-gray-300">
+                    {v.city}
+                    {v.country ? `, ${v.country}` : ""}
+                  </div>
+                  <div className="text-xs text-gray-600 flex gap-2 mt-1 flex-wrap">
+                    <span>IP: {v.ip}</span>
+                    <span>{v.device} / {v.browser}</span>
+                    <span>{ago(v.visitTime)}</span>
+                    {v.speed != null && <span>{(v.speed * 3.6).toFixed(1)} km/h</span>}
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => flyTo(v.lat, v.lng)}
+                      className="flex-1 text-xs bg-blue-500/20 text-blue-400 py-1.5 rounded-lg hover:bg-blue-500/30 transition-colors"
+                    >
+                      Locate
+                    </button>
+                    <button
+                      onClick={() => showHistory(v.vid)}
+                      className="flex-1 text-xs bg-amber-500/20 text-amber-400 py-1.5 rounded-lg hover:bg-amber-500/30 transition-colors"
+                    >
+                      History
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </>
+        )}
+
+        {view === "history" && (
+          <>
+            <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+              <button
+                onClick={backToLive}
+                className="text-xs bg-[#222] text-gray-400 px-3 py-1.5 rounded-lg hover:bg-[#333] transition-colors"
+              >
+                &larr; Back
+              </button>
+              <h3 className="text-xs text-gray-600 uppercase tracking-widest">
+                History: {selectedVid}
+              </h3>
             </div>
-          ))
+
+            {selectedVisitor && (
+              <div className="mx-3 mb-3 p-3 bg-[#1a1a1a] rounded-xl border border-[#222]">
+                <div className="text-sm text-gray-300">
+                  {selectedVisitor.city}{selectedVisitor.country ? `, ${selectedVisitor.country}` : ""}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  IP: {selectedVisitor.ip} &middot; {selectedVisitor.device} / {selectedVisitor.browser}
+                </div>
+                <div className="text-xs text-gray-600 mt-0.5">
+                  First seen: {formatTime(selectedVisitor.visitTime)}
+                </div>
+              </div>
+            )}
+
+            <div className="px-4 pb-1">
+              <span className="text-xs text-gray-600">{history.length} location records</span>
+            </div>
+
+            {history.length === 0 ? (
+              <div className="p-8 text-center text-gray-600 text-sm">No location history yet.</div>
+            ) : (
+              history.map((h, i) => (
+                <div
+                  key={i}
+                  onClick={() => flyTo(h.lat, h.lng)}
+                  className="mx-3 my-1 p-3 bg-[#1a1a1a] rounded-xl border border-[#222] cursor-pointer hover:border-amber-500/50 transition-colors"
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-bold text-sm">
+                      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[0.6rem] font-bold mr-2 ${
+                        i === history.length - 1 ? "bg-green-500 text-black" : "bg-amber-500 text-black"
+                      }`}>
+                        {i + 1}
+                      </span>
+                      {h.lat.toFixed(6)}, {h.lng.toFixed(6)}
+                    </span>
+                    <span className={`text-[0.65rem] font-semibold px-2 py-0.5 rounded ${
+                      h.source === "gps" ? "bg-green-950 text-green-400" : "bg-blue-950 text-blue-400"
+                    }`}>
+                      {h.source.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 flex gap-3">
+                    <span>{formatTime(h.timestamp)}</span>
+                    <span>Acc: {h.accuracy.toFixed(0)}m</span>
+                    {h.speed != null && <span>{(h.speed * 3.6).toFixed(1)} km/h</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </>
         )}
       </div>
     </>

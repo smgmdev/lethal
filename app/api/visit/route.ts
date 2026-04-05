@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { geolocateIp, parseUserAgent } from "@/lib/geo";
-import { setVisitor } from "@/lib/store";
+import { setVisitor, addLocationEntry } from "@/lib/store";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
 
   const geo = await geolocateIp(ip);
   const { device, browser } = parseUserAgent(ua);
+  const now = Date.now() / 1000;
 
   const visitor = {
     vid,
@@ -25,13 +26,27 @@ export async function POST(request: NextRequest) {
     isp: geo.isp,
     device,
     browser,
-    visitTime: Date.now() / 1000,
-    lastSeen: Date.now() / 1000,
+    visitTime: now,
+    lastSeen: now,
     source: "ip" as const,
     speed: null,
     accuracy: 0,
+    history: [],
   };
 
   setVisitor(vid, visitor);
+
+  // Save initial IP location to history
+  if (geo.lat !== 0 || geo.lng !== 0) {
+    addLocationEntry(vid, {
+      lat: geo.lat,
+      lng: geo.lng,
+      accuracy: 0,
+      speed: null,
+      source: "ip",
+      timestamp: now,
+    });
+  }
+
   return Response.json({ ok: true, vid, location: geo });
 }

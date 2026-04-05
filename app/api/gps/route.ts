@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getVisitor, setVisitor } from "@/lib/store";
+import { getVisitor, setVisitor, addLocationEntry } from "@/lib/store";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -16,6 +16,16 @@ export async function POST(request: NextRequest) {
     visitor.source = "gps";
     visitor.lastSeen = Date.now() / 1000;
     setVisitor(vid, visitor);
+
+    // Save to history
+    addLocationEntry(vid, {
+      lat,
+      lng,
+      accuracy: accuracy || 0,
+      speed: speed ?? null,
+      source: "gps",
+      timestamp: Date.now() / 1000,
+    });
   }
 
   return Response.json({ ok: true });
