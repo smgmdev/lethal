@@ -240,7 +240,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "call_signals", filter: `to_id=eq.${me.id}` },
         (payload: any) => {
-          handleCallSignalRef.current(payload.new);
+          processSignal(payload.new);
         }
       )
       .subscribe();
@@ -440,20 +440,26 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer } }) });
   }
 
+  const endCallPlayedRef = useRef(false);
+
   function playEndCallSound() {
+    if (endCallPlayedRef.current) return;
+    endCallPlayedRef.current = true;
     try {
       const ctx = getAudioCtx();
+      const t = ctx.currentTime;
       [600, 480, 360].forEach((freq, i) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.12, ctx.currentTime + i * 0.15);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.2);
+        gain.gain.setValueAtTime(0.12, t + i * 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.15 + 0.2);
         osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(ctx.currentTime + i * 0.15);
-        osc.stop(ctx.currentTime + i * 0.15 + 0.2);
+        osc.start(t + i * 0.15);
+        osc.stop(t + i * 0.15 + 0.2);
       });
     } catch {}
+    setTimeout(() => { endCallPlayedRef.current = false; }, 2000);
   }
 
   const endingCallRef = useRef(false);
@@ -546,6 +552,20 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   // Keep ref updated so realtime subscription always has latest version
   handleCallSignalRef.current = handleCallSignal;
 
+  // Dedup signals — track processed IDs
+  const processedSignalsRef = useRef<Set<number>>(new Set());
+
+  function processSignal(s: any) {
+    if (!s.id || processedSignalsRef.current.has(s.id)) return;
+    processedSignalsRef.current.add(s.id);
+    // Keep set from growing forever
+    if (processedSignalsRef.current.size > 100) {
+      const arr = Array.from(processedSignalsRef.current);
+      processedSignalsRef.current = new Set(arr.slice(-50));
+    }
+    handleCallSignalRef.current(s);
+  }
+
   // Fallback polling for call signals (in case Realtime misses them)
   async function pollCallSignalsFallback() {
     if (!me) return;
@@ -553,7 +573,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       const r = await fetch(`/api/chat/call?userId=${me.id}`);
       const signals = await r.json();
       for (const s of signals) {
-        handleCallSignalRef.current(s);
+        processSignal(s);
       }
     } catch {}
   }
