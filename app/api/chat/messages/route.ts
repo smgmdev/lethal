@@ -16,16 +16,8 @@ export async function GET(request: NextRequest) {
 
   if (error) return Response.json([]);
 
+  // Only mark as READ when user is viewing this conversation
   if (userId) {
-    // Mark as delivered
-    await supabase
-      .from("chat_messages")
-      .update({ delivered: true })
-      .eq("conversation_id", conversationId)
-      .neq("sender_id", userId)
-      .eq("delivered", false);
-
-    // Mark as read
     await supabase
       .from("chat_messages")
       .update({ read: true, delivered: true })
@@ -57,7 +49,6 @@ export async function POST(request: NextRequest) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  // Update conversation last message
   await supabase
     .from("conversations")
     .update({
