@@ -15,6 +15,9 @@ interface Message {
   read: boolean;
   delivered: boolean;
   created_at: string;
+  reply_to_id: number | null;
+  reply_to_text: string | null;
+  reply_to_sender: string | null;
 }
 
 interface User {
@@ -37,6 +40,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const [inCall, setInCall] = useState(false);
   const [callType, setCallType] = useState<"audio" | "video">("audio");
   const [muted, setMuted] = useState(false);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -323,17 +328,25 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     pausePollRef.current = true;
     clearTyping();
 
+    const replyData = replyTo ? {
+      replyToId: replyTo.id,
+      replyToText: replyTo.text || (replyTo.file_name ? `[${replyTo.file_type?.split("/")[0] || "file"}]` : ""),
+      replyToSender: replyTo.sender_id === me.id ? me.display_name : otherUser?.display_name || "",
+    } : {};
+
     const tempMsg: Message = {
       id: Date.now(), conversation_id: conversationId, sender_id: me.id,
       text: msg, file_url: null, file_type: null, file_name: null,
       read: false, delivered: false, created_at: new Date().toISOString(),
+      reply_to_id: replyTo?.id || null, reply_to_text: replyData.replyToText || null, reply_to_sender: replyData.replyToSender || null,
     };
     setMessages((prev) => [...prev, tempMsg]);
+    setReplyTo(null);
 
     await fetch("/api/chat/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId, senderId: me.id, text: msg }),
+      body: JSON.stringify({ conversationId, senderId: me.id, text: msg, ...replyData }),
     });
     setTimeout(() => { pausePollRef.current = false; loadMessages(); }, 600);
   }
@@ -628,16 +641,31 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         {messages.map((msg) => {
           const isMine = msg.sender_id === me?.id;
           return (
-            <div key={msg.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
-              <div className={`px-3 py-1.5 rounded-lg text-sm ${
+            <div key={msg.id} className={`flex ${isMine ? "justify-end" : "justify-start"} group`}>
+              <div className={`relative px-3 py-1.5 rounded-lg text-sm ${
                 isMine ? "bg-[#005c4b] text-white rounded-tr-none" : "bg-[#202c33] text-white rounded-tl-none"
               }`} style={{ maxWidth: msg.file_url ? "min(75%, 300px)" : "75%", overflow: "hidden" }}>
+                {/* Reply preview */}
+                {msg.reply_to_text && (
+                  <div className={`rounded-md px-2.5 py-1.5 mb-1.5 border-l-[3px] ${isMine ? "bg-[#00473d] border-[#06cf9c]" : "bg-[#1a2930] border-[#53bdeb]"}`}>
+                    <div className={`text-[0.65rem] font-semibold ${isMine ? "text-[#06cf9c]" : "text-[#53bdeb]"}`}>{msg.reply_to_sender}</div>
+                    <div className="text-[0.7rem] text-[#ffffff90] truncate">{msg.reply_to_text}</div>
+                  </div>
+                )}
                 {msg.text && <p className="whitespace-pre-wrap break-words m-0">{msg.text}</p>}
                 {renderFile(msg)}
                 <div className={`text-[0.6rem] mt-0.5 flex items-center justify-end gap-1 ${isMine ? "text-[#ffffff60]" : "text-[#8696a0]"}`}>
                   {formatTime(msg.created_at)}
                   {renderTicks(msg)}
                 </div>
+                {/* Reply button */}
+                <button
+                  onClick={() => { setReplyTo(msg); inputRef.current?.focus(); }}
+                  className="absolute top-1 opacity-0 group-hover:opacity-100 transition-opacity bg-[#00000040] rounded-full w-6 h-6 flex items-center justify-center"
+                  style={{ [isMine ? "left" : "right"]: "-28px" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                </button>
               </div>
             </div>
           );
@@ -656,6 +684,23 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Reply preview bar */}
+      {replyTo && (
+        <div className="bg-[#1a2530] px-4 py-2 flex items-center gap-3 border-l-4 border-[#00a884] sticky bottom-[52px] z-30">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-[#00a884]">
+              {replyTo.sender_id === me?.id ? "You" : otherUser?.display_name}
+            </div>
+            <div className="text-xs text-[#8696a0] truncate">
+              {replyTo.text || replyTo.file_name || "[media]"}
+            </div>
+          </div>
+          <button onClick={() => setReplyTo(null)} className="text-[#8696a0] hover:text-white shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      )}
+
       {/* Input */}
       <div className="bg-[#202c33] px-3 py-2.5 flex items-center gap-2 shrink-0 sticky bottom-0 z-30">
         <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx" />
@@ -668,6 +713,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         </button>
         <form onSubmit={sendMessage} className="flex-1 flex gap-2">
           <input
+            ref={inputRef}
             value={text}
             onChange={(e) => { setText(e.target.value); handleTyping(); }}
             placeholder="Type a message"

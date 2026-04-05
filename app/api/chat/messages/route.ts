@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 // Send a message
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { conversationId, senderId, text, fileUrl, fileType, fileName } = body;
+  const { conversationId, senderId, text, fileUrl, fileType, fileName, replyToId, replyToText, replyToSender } = body;
 
   const { data, error } = await supabase
     .from("chat_messages")
@@ -43,6 +43,9 @@ export async function POST(request: NextRequest) {
       file_url: fileUrl || null,
       file_type: fileType || null,
       file_name: fileName || null,
+      reply_to_id: replyToId || null,
+      reply_to_text: replyToText || null,
+      reply_to_sender: replyToSender || null,
     })
     .select()
     .single();
