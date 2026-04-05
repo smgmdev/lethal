@@ -489,13 +489,20 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   function renderTicks(msg: Message) {
     if (msg.sender_id !== me?.id) return null;
-    if (msg.read) {
-      return <span className="text-[#53bdeb]">&#10003;&#10003;</span>; // blue double tick
+    const color = msg.read ? "#53bdeb" : "#ffffff80";
+    if (msg.read || msg.delivered) {
+      return (
+        <svg width="16" height="11" viewBox="0 0 16 11" fill="none" className="inline-block ml-1">
+          <path d="M11.07 0.73L4.34 7.46L1.71 4.83L0.29 6.24L4.34 10.29L12.49 2.14L11.07 0.73Z" fill={color}/>
+          <path d="M14.07 0.73L7.34 7.46L6.56 6.68L5.14 8.1L7.34 10.29L15.49 2.14L14.07 0.73Z" fill={color}/>
+        </svg>
+      );
     }
-    if (msg.delivered) {
-      return <span className="text-[#ffffff80]">&#10003;&#10003;</span>; // grey double tick
-    }
-    return <span className="text-[#ffffff80]">&#10003;</span>; // single tick
+    return (
+      <svg width="12" height="11" viewBox="0 0 12 11" fill="none" className="inline-block ml-1">
+        <path d="M10.07 0.73L3.34 7.46L0.71 4.83L-0.71 6.24L3.34 10.29L11.49 2.14L10.07 0.73Z" fill="#ffffff80"/>
+      </svg>
+    );
   }
 
   function renderFile(msg: Message) {
@@ -503,7 +510,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     const type = msg.file_type || "";
     if (type.startsWith("image/"))
       return (
-        <img src={msg.file_url} alt="" className="block rounded-lg mt-1 cursor-pointer" style={{ maxWidth: "100%", height: "auto" }} onClick={() => window.open(msg.file_url!, "_blank")} />
+        <img src={msg.file_url} alt="" className="block rounded-lg mt-1 mb-2 cursor-pointer" style={{ maxWidth: "100%", height: "auto" }} onClick={() => window.open(msg.file_url!, "_blank")} />
       );
     if (type.startsWith("video/"))
       return <video src={msg.file_url} controls playsInline className="rounded-lg mt-1" style={{ maxWidth: "min(280px, 100%)" }} />;
