@@ -307,8 +307,16 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     });
   }
 
+  function cleanupCall() {
+    if (pcRef.current) { try { pcRef.current.close(); } catch {} pcRef.current = null; }
+    if (localStreamRef.current) { localStreamRef.current.getTracks().forEach((t) => t.stop()); localStreamRef.current = null; }
+    if (remoteMediaRef.current) { remoteMediaRef.current.srcObject = null; }
+    remoteStreamRef.current = null; remoteMediaRef.current = null;
+  }
+
   async function startCall(type: "audio" | "video") {
     if (!me || !otherUser) return;
+    cleanupCall(); // Kill any existing call first
     setCallType(type); setCalling(true); setMuted(false);
     startCallingSound();
     let stream: MediaStream;
@@ -338,6 +346,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
   async function answerCall(signal: any) {
     if (!me) return;
+    cleanupCall(); // Kill any existing call first
     setIncomingCall(null); stopRingtone(); setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
     let stream: MediaStream;
     try {
@@ -368,16 +377,12 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const endingCallRef = useRef(false);
 
   function endCall() {
-    if (endingCallRef.current) return; // Prevent double calls
+    if (endingCallRef.current) return;
     endingCallRef.current = true;
     stopCallingSound();
     stopRingtone();
-    if (pcRef.current) { try { pcRef.current.close(); } catch {} }
-    if (localStreamRef.current) localStreamRef.current.getTracks().forEach((t) => t.stop());
-    if (remoteMediaRef.current) { remoteMediaRef.current.srcObject = null; }
-    pcRef.current = null; localStreamRef.current = null; remoteStreamRef.current = null; remoteMediaRef.current = null;
+    cleanupCall();
     setInCall(false); setCalling(false); setMuted(false); setHasRemoteStream(false);
-    playEndCallSound();
     setTimeout(() => { endingCallRef.current = false; }, 1000);
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-end", payload: {} }) });
