@@ -63,6 +63,8 @@ export default function AdminPage() {
       L.control.zoom({ position: "bottomleft" }).addTo(mapInstance.current);
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         attribution: "&copy; CartoDB",
+        maxZoom: 20,
+        maxNativeZoom: 19,
       }).addTo(mapInstance.current);
     };
     document.head.appendChild(script);
@@ -127,7 +129,7 @@ export default function AdminPage() {
   }, [visitors]);
 
   function flyTo(lat: number, lng: number) {
-    if (mapInstance.current) mapInstance.current.setView([lat, lng], 18);
+    if (mapInstance.current) mapInstance.current.setView([lat, lng], mapInstance.current.getMaxZoom());
   }
 
   const gpsCount = visitors.filter((v) => v.source === "gps").length;
