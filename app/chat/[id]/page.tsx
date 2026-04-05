@@ -58,11 +58,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const handleCallSignalRef = useRef<(s: any) => void>(() => {});
   const hasInteractedRef = useRef(false);
 
-  // Sound refs — pointed to <audio> elements in JSX
-  const msgSoundEl = useRef<HTMLAudioElement>(null);
-  const ringtoneSoundEl = useRef<HTMLAudioElement>(null);
-  const callingSoundEl = useRef<HTMLAudioElement>(null);
-  const endcallSoundEl = useRef<HTMLAudioElement>(null);
+  // Sounds disabled — fixing call audio first
 
   useEffect(() => {
     const saved = localStorage.getItem("chat_user");
@@ -98,25 +94,12 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     };
   }, []);
 
-  function playSound(ref: React.RefObject<HTMLAudioElement | null>) {
-    const el = ref.current;
-    if (!el) return;
-    el.currentTime = 0;
-    el.play().catch(() => {});
-  }
-
-  function stopSound(ref: React.RefObject<HTMLAudioElement | null>) {
-    const el = ref.current;
-    if (!el) return;
-    el.pause();
-    el.currentTime = 0;
-  }
-
-  function playMessageSound() { playSound(msgSoundEl); }
-  function startCallingSound() { playSound(callingSoundEl); }
-  function stopCallingSound() { stopSound(callingSoundEl); }
-  function playRingtone() { playSound(ringtoneSoundEl); }
-  function stopRingtone() { stopSound(ringtoneSoundEl); }
+  function playMessageSound() {}
+  function startCallingSound() {}
+  function stopCallingSound() {}
+  function playRingtone() {}
+  function stopRingtone() {}
+  function playEndCallSound() {}
 
   // Play sound on new message from other user
   useEffect(() => {
@@ -159,7 +142,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
     return () => {
       clearInterval(i); clearInterval(hb); supabaseClient.removeChannel(channel);
-      stopSound(callingSoundEl); stopSound(ringtoneSoundEl);
+      stopCallingSound(); stopRingtone();
     };
   }, [me]);
 
@@ -371,7 +354,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer: pc.localDescription } }) });
   }
 
-  function playEndCallSound() { playSound(endcallSoundEl); }
 
   const endingCallRef = useRef(false);
 
@@ -712,11 +694,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
           </button>
         </form>
       </div>
-      {/* Audio elements — in DOM so browser can autoplay them */}
-      <audio ref={msgSoundEl} src="/sounds/message.wav" preload="auto" />
-      <audio ref={ringtoneSoundEl} src="/sounds/ringtone.wav" preload="auto" loop />
-      <audio ref={callingSoundEl} src="/sounds/calling.wav" preload="auto" loop />
-      <audio ref={endcallSoundEl} src="/sounds/endcall.wav" preload="auto" />
     </div>
   );
 }
