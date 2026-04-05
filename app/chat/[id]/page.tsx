@@ -292,18 +292,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
-        audioOutput: { deviceId: "default" },
         audioCaptureDefaults: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000,
-        },
-        publishDefaults: {
-          audioPreset: { maxBitrate: 24000 },
-          dtx: true,
-          red: true,
         },
       });
       livekitRoomRef.current = room;
@@ -348,18 +340,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
-        audioOutput: { deviceId: "default" },
         audioCaptureDefaults: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000,
-        },
-        publishDefaults: {
-          audioPreset: { maxBitrate: 24000 },
-          dtx: true,
-          red: true,
         },
       });
       livekitRoomRef.current = room;
