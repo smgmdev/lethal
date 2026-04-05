@@ -23,7 +23,6 @@ export default function LandingPage() {
       .then(() => {
         setStatus("Connected");
         setDone(true);
-        startGps(vid!);
         startHeartbeat(vid!);
       })
       .catch(() => {
@@ -38,22 +37,6 @@ export default function LandingPage() {
     window.addEventListener("beforeunload", handleLeave);
     return () => window.removeEventListener("beforeunload", handleLeave);
   }, []);
-
-  function startGps(vid: string) {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy, speed } = pos.coords;
-        fetch("/api/gps", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vid, lat: latitude, lng: longitude, accuracy, speed }),
-        }).catch(() => {});
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
-    );
-  }
 
   function startHeartbeat(vid: string) {
     setInterval(() => {
