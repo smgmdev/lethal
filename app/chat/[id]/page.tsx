@@ -641,10 +641,19 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
         {messages.map((msg) => {
           const isMine = msg.sender_id === me?.id;
           return (
-            <div key={msg.id} className={`flex ${isMine ? "justify-end" : "justify-start"} group`}>
-              <div className={`relative px-3 py-1.5 rounded-lg text-sm ${
+            <div key={msg.id} className={`flex ${isMine ? "justify-end" : "justify-start"} group items-start gap-1`}>
+              {/* Reply button - left side for own messages */}
+              {isMine && (
+                <button
+                  onClick={() => { setReplyTo(msg); inputRef.current?.focus(); }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 shrink-0"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                </button>
+              )}
+              <div className={`px-3 py-1.5 rounded-lg text-sm ${
                 isMine ? "bg-[#005c4b] text-white rounded-tr-none" : "bg-[#202c33] text-white rounded-tl-none"
-              }`} style={{ maxWidth: msg.file_url ? "min(75%, 300px)" : "75%", overflow: "hidden" }}>
+              }`} style={{ maxWidth: msg.file_url ? "min(70%, 300px)" : "75%", overflow: "hidden" }}>
                 {/* Reply preview */}
                 {msg.reply_to_text && (
                   <div className={`rounded-md px-2.5 py-1.5 mb-1.5 border-l-[3px] ${isMine ? "bg-[#00473d] border-[#06cf9c]" : "bg-[#1a2930] border-[#53bdeb]"}`}>
@@ -658,15 +667,16 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
                   {formatTime(msg.created_at)}
                   {renderTicks(msg)}
                 </div>
-                {/* Reply button */}
+              </div>
+              {/* Reply button - right side for other's messages */}
+              {!isMine && (
                 <button
                   onClick={() => { setReplyTo(msg); inputRef.current?.focus(); }}
-                  className="absolute top-1 opacity-0 group-hover:opacity-100 transition-opacity bg-[#00000040] rounded-full w-6 h-6 flex items-center justify-center"
-                  style={{ [isMine ? "left" : "right"]: "-28px" }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 shrink-0"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
                 </button>
-              </div>
+              )}
             </div>
           );
         })}
