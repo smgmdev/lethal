@@ -58,48 +58,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const handleCallSignalRef = useRef<(s: any) => void>(() => {});
   const hasInteractedRef = useRef(false);
 
-  // Sound refs — single Audio element per sound, reused
-  const soundsRef = useRef<{ message: HTMLAudioElement; ringtone: HTMLAudioElement; calling: HTMLAudioElement; endcall: HTMLAudioElement } | null>(null);
-
-  // Initialize sounds once + unlock on first interaction
-  useEffect(() => {
-    const s = {
-      message: new Audio("/sounds/message.wav"),
-      ringtone: new Audio("/sounds/ringtone.wav"),
-      calling: new Audio("/sounds/calling.wav"),
-      endcall: new Audio("/sounds/endcall.wav"),
-    };
-    s.ringtone.loop = true;
-    s.calling.loop = true;
-    s.endcall.loop = false;
-    s.message.loop = false;
-    s.message.volume = 0.5;
-    s.ringtone.volume = 0.7;
-    s.calling.volume = 0.5;
-    s.endcall.volume = 0.5;
-    soundsRef.current = s;
-
-    // Unlock all audio elements on first user interaction
-    function unlock() {
-      Object.values(s).forEach((a) => {
-        a.muted = true;
-        a.play().then(() => { a.pause(); a.muted = false; a.currentTime = 0; }).catch(() => { a.muted = false; });
-      });
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("touchstart", unlock);
-      window.removeEventListener("keydown", unlock);
-    }
-    window.addEventListener("click", unlock);
-    window.addEventListener("touchstart", unlock);
-    window.addEventListener("keydown", unlock);
-
-    return () => {
-      Object.values(s).forEach((a) => { a.pause(); a.currentTime = 0; });
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("touchstart", unlock);
-      window.removeEventListener("keydown", unlock);
-    };
-  }, []);
+  // Sound refs — pointed to <audio> elements in JSX
+  const msgSoundEl = useRef<HTMLAudioElement>(null);
+  const ringtoneSoundEl = useRef<HTMLAudioElement>(null);
+  const callingSoundEl = useRef<HTMLAudioElement>(null);
+  const endcallSoundEl = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("chat_user");
@@ -135,40 +98,25 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     };
   }, []);
 
-  function playMessageSound() {
-    if (!soundsRef.current) return;
-    const s = soundsRef.current.message;
-    s.currentTime = 0;
-    s.play().catch(() => {});
+  function playSound(ref: React.RefObject<HTMLAudioElement | null>) {
+    const el = ref.current;
+    if (!el) return;
+    el.currentTime = 0;
+    el.play().catch(() => {});
   }
 
-  function startCallingSound() {
-    stopCallingSound();
-    if (!soundsRef.current) return;
-    const s = soundsRef.current.calling;
-    s.currentTime = 0;
-    s.play().catch(() => {});
+  function stopSound(ref: React.RefObject<HTMLAudioElement | null>) {
+    const el = ref.current;
+    if (!el) return;
+    el.pause();
+    el.currentTime = 0;
   }
 
-  function stopCallingSound() {
-    if (!soundsRef.current) return;
-    soundsRef.current.calling.pause();
-    soundsRef.current.calling.currentTime = 0;
-  }
-
-  function playRingtone() {
-    stopRingtone();
-    if (!soundsRef.current) return;
-    const s = soundsRef.current.ringtone;
-    s.currentTime = 0;
-    s.play().catch(() => {});
-  }
-
-  function stopRingtone() {
-    if (!soundsRef.current) return;
-    soundsRef.current.ringtone.pause();
-    soundsRef.current.ringtone.currentTime = 0;
-  }
+  function playMessageSound() { playSound(msgSoundEl); }
+  function startCallingSound() { playSound(callingSoundEl); }
+  function stopCallingSound() { stopSound(callingSoundEl); }
+  function playRingtone() { playSound(ringtoneSoundEl); }
+  function stopRingtone() { stopSound(ringtoneSoundEl); }
 
   // Play sound on new message from other user
   useEffect(() => {
@@ -211,7 +159,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
     return () => {
       clearInterval(i); clearInterval(hb); supabaseClient.removeChannel(channel);
-      stopCallingSound(); stopRingtone();
+      stopSound(callingSoundEl); stopSound(ringtoneSoundEl);
     };
   }, [me]);
 
@@ -423,16 +371,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify({ conversationId, fromId: me.id, toId: signal.from_id, type: "call-answer", payload: { answer: pc.localDescription } }) });
   }
 
-  const endCallPlayedRef = useRef(false);
-
-  function playEndCallSound() {
-    if (endCallPlayedRef.current || !soundsRef.current) return;
-    endCallPlayedRef.current = true;
-    const s = soundsRef.current.endcall;
-    s.currentTime = 0;
-    s.play().catch(() => {});
-    setTimeout(() => { endCallPlayedRef.current = false; }, 2000);
-  }
+  function playEndCallSound() { playSound(endcallSoundEl); }
 
   const endingCallRef = useRef(false);
 
@@ -773,6 +712,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
           </button>
         </form>
       </div>
+      {/* Audio elements — in DOM so browser can autoplay them */}
+      <audio ref={msgSoundEl} src="/sounds/message.wav" preload="auto" />
+      <audio ref={ringtoneSoundEl} src="/sounds/ringtone.wav" preload="auto" loop />
+      <audio ref={callingSoundEl} src="/sounds/calling.wav" preload="auto" loop />
+      <audio ref={endcallSoundEl} src="/sounds/endcall.wav" preload="auto" />
     </div>
   );
 }
