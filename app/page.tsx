@@ -277,18 +277,15 @@ export default function LandingPage() {
       {/* Header */}
       <div className="bg-white sticky top-0 z-50 border-b border-gray-100">
         <div className="max-w-2xl mx-auto px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <a href="/" className="flex items-center gap-2.5 no-underline text-inherit">
             <div className="w-9 h-9 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center text-sm font-black text-white shadow-sm">R</div>
             <div>
               <span className="font-bold text-base">Recco</span>
               <span className="text-[0.6rem] text-orange-500 font-semibold ml-1.5 bg-orange-50 px-1.5 py-0.5 rounded-full">BETA</span>
             </div>
-          </div>
+          </a>
           {stage === "results" && (
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">{filtered.length} places found</span>
-              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm cursor-pointer hover:bg-gray-200">&#9776;</div>
-            </div>
+            <span className="text-xs text-gray-400">{filtered.length} places found</span>
           )}
         </div>
       </div>
