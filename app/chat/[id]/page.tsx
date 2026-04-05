@@ -96,8 +96,19 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     return () => { clearInterval(i); clearInterval(hb); };
   }, [me]);
 
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+
+  function handleScroll() {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  }
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   async function sendHeartbeat() {
@@ -209,7 +220,14 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   async function startCall(type: "audio" | "video") {
     if (!me || !otherUser) return;
     setCallType(type); setCalling(true);
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === "video" });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === "video" });
+    } catch (err) {
+      alert("Could not access microphone/camera. Please allow permissions.");
+      setCalling(false);
+      return;
+    }
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
@@ -230,7 +248,14 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   async function answerCall(signal: any) {
     if (!me) return;
     setIncomingCall(null); setCallType(signal.payload.callType || "audio"); setInCall(true);
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: signal.payload.callType === "video" });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: signal.payload.callType === "video" });
+    } catch (err) {
+      alert("Could not access microphone/camera. Please allow permissions.");
+      setInCall(false);
+      return;
+    }
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
@@ -304,10 +329,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#0b141a] max-w-2xl mx-auto">
+    <div className="fixed inset-0 flex flex-col bg-[#0b141a] max-w-2xl mx-auto">
       {/* Incoming call */}
       {incomingCall && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
+        <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center">
           <div className="bg-[#202c33] rounded-2xl p-8 text-center">
             <div className="w-20 h-20 bg-[#2a3942] rounded-full flex items-center justify-center text-3xl mx-auto mb-4 text-[#8696a0]">
               {otherUser?.display_name?.[0]?.toUpperCase()}
@@ -328,11 +353,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
 
       {/* In-call UI */}
       {inCall && (
-        <div className="fixed inset-0 z-40 bg-[#0b141a] flex flex-col items-center justify-center">
+        <div className="fixed inset-0 z-[100] bg-[#0b141a] flex flex-col items-center justify-center" style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {callType === "video" ? (
             <>
               <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-              <video ref={localVideoRef} autoPlay playsInline muted className="absolute top-4 right-4 w-32 h-44 object-cover rounded-xl border-2 border-[#2a3942]" />
+              <video ref={localVideoRef} autoPlay playsInline muted className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 w-28 h-40 object-cover rounded-xl border-2 border-[#2a3942]" />
             </>
           ) : (
             <div className="text-center">
@@ -341,11 +366,11 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
               </div>
               <h3 className="text-white text-xl font-semibold">{otherUser?.display_name}</h3>
               <p className="text-[#8696a0] text-sm mt-1">{calling ? "Calling..." : "In call"}</p>
-              <audio ref={remoteVideoRef as any} autoPlay />
+              <audio ref={remoteVideoRef as any} autoPlay playsInline />
             </div>
           )}
-          <div className="absolute bottom-10">
-            <button onClick={endCall} className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600 shadow-lg">
+          <div className="absolute bottom-[calc(2.5rem+env(safe-area-inset-bottom))]">
+            <button onClick={endCall} className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center active:bg-red-600 shadow-lg">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" transform="rotate(135 12 12)"/></svg>
             </button>
           </div>
@@ -353,7 +378,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       )}
 
       {/* Header */}
-      <div className="bg-[#202c33] px-4 py-2.5 flex items-center gap-3 shrink-0">
+      <div className="bg-[#202c33] px-4 py-2.5 flex items-center gap-3 shrink-0 sticky top-0 z-30">
         <a href="/chat" className="text-[#8696a0] no-underline hover:text-white">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         </a>
@@ -386,7 +411,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#091519]">
+      <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#091519]">
         {messages.map((msg) => {
           const isMine = msg.sender_id === me?.id;
           return (
@@ -419,7 +444,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Input */}
-      <div className="bg-[#202c33] px-3 py-2.5 flex items-center gap-2 shrink-0">
+      <div className="bg-[#202c33] px-3 py-2.5 flex items-center gap-2 shrink-0 sticky bottom-0 z-30">
         <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx" />
         <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="w-10 h-10 flex items-center justify-center text-[#8696a0] hover:text-white shrink-0">
           {uploading ? (
