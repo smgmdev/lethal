@@ -77,10 +77,12 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   }, [messages]);
 
   async function loadMessages() {
-    if (!me) return;
+    if (!me || pausePollRef.current) return;
     const r = await fetch(`/api/chat/messages?conversationId=${conversationId}&userId=${me.id}`);
     const data = await r.json();
-    setMessages(data);
+    if (!pausePollRef.current) {
+      setMessages(data);
+    }
   }
 
   async function loadOtherUser() {
@@ -91,12 +93,17 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (convo?.other_user) setOtherUser(convo.other_user);
   }
 
+  const pausePollRef = useRef(false);
+
   async function sendMessage(e?: React.FormEvent) {
     e?.preventDefault();
     if (!text.trim() || !me) return;
 
     const msg = text.trim();
     setText("");
+
+    // Pause polling so it doesn't overwrite before DB saves
+    pausePollRef.current = true;
 
     // Optimistic: show message immediately
     const tempMsg: Message = {
@@ -117,6 +124,12 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId, senderId: me.id, text: msg }),
     });
+
+    // Resume polling after a short delay to let DB sync
+    setTimeout(() => {
+      pausePollRef.current = false;
+      loadMessages();
+    }, 500);
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -420,7 +433,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1" style={{ backgroundImage: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 80 80\"><rect fill=\"%23091519\" width=\"80\" height=\"80\"/><circle fill=\"%230d1f26\" cx=\"40\" cy=\"40\" r=\"1\"/></svg>')", backgroundSize: "80px" }}>
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#091519]">
         {messages.map((msg) => {
           const isMine = msg.sender_id === me?.id;
           return (
