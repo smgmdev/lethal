@@ -46,8 +46,6 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dailyRef = useRef<any>(null);
-  const dailyFrameRef = useRef<HTMLIFrameElement | null>(null);
   const pausePollRef = useRef(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tabVisibleRef = useRef(true);
@@ -270,42 +268,50 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // ── Daily.co Calls ──
+  // ── LiveKit Calls ──
+  const livekitRoomRef = useRef<any>(null);
+
   async function startCall(type: "audio" | "video") {
     if (!me || !otherUser) return;
     setCallType(type); setCalling(true); setMuted(false);
 
-    // Create Daily room
-    const res = await fetch("/api/chat/daily-room", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId }),
-    });
-    const room = await res.json();
-    if (!room.ok) { setCalling(false); return; }
-
     try {
-    const DailyModule = await import("@daily-co/daily-js");
-    const DailyCall = DailyModule.default || DailyModule;
-    const daily = DailyCall.createCallObject({
-      audioSource: true,
-      videoSource: type === "video",
-    });
-    dailyRef.current = daily;
+      const roomName = `call-${conversationId}`;
 
-    daily.on("participant-joined", () => { setHasRemoteStream(true); setCalling(false); });
-    daily.on("participant-left", () => { endCall(); });
-    daily.on("left-meeting", () => { endCall(); });
+      // Get token
+      const res = await fetch("/api/chat/livekit-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName, identity: me.id, displayName: me.display_name }),
+      });
+      const tokenData = await res.json();
+      if (!tokenData.ok) throw new Error("Failed to get token");
 
-    await daily.join({ url: room.url, userName: me.display_name, startVideoOff: type === "audio", startAudioOff: false });
-    setInCall(true);
+      // Connect to LiveKit
+      const { Room, RoomEvent } = await import("livekit-client");
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      livekitRoomRef.current = room;
 
-    // Signal the other user
-    await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { roomUrl: room.url, callType: type } }) });
+      room.on(RoomEvent.ParticipantConnected, () => { setHasRemoteStream(true); setCalling(false); });
+      room.on(RoomEvent.ParticipantDisconnected, () => { endCall(); });
+      room.on(RoomEvent.Disconnected, () => { endCall(); });
+
+      await room.connect(tokenData.url, tokenData.token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      if (type === "video") await room.localParticipant.setCameraEnabled(true);
+
+      setInCall(true);
+
+      // Signal the other user
+      await fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, fromId: me.id, toId: otherUser.id, type: "call-start", payload: { roomName, callType: type } }) });
     } catch (err) {
-      console.error("Daily call error:", err);
-      alert("Call error: " + JSON.stringify(err, null, 2));
+      console.error("LiveKit call error:", err);
+      alert("Call error: " + (err instanceof Error ? err.message : JSON.stringify(err)));
       setCalling(false);
     }
   }
@@ -316,30 +322,42 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setCallType(signal.payload.callType || "audio"); setInCall(true); setMuted(false);
 
     try {
-    const DailyModule = await import("@daily-co/daily-js");
-    const DailyCall = DailyModule.default || DailyModule;
-    const daily = DailyCall.createCallObject({
-      audioSource: true,
-      videoSource: signal.payload.callType === "video",
-    });
-    dailyRef.current = daily;
+      const roomName = signal.payload.roomName;
 
-    daily.on("participant-joined", () => { setHasRemoteStream(true); });
-    daily.on("participant-left", () => { endCall(); });
-    daily.on("left-meeting", () => { endCall(); });
+      const res = await fetch("/api/chat/livekit-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName, identity: me.id, displayName: me.display_name }),
+      });
+      const tokenData = await res.json();
+      if (!tokenData.ok) throw new Error("Failed to get token");
 
-    await daily.join({ url: signal.payload.roomUrl, userName: me.display_name, startVideoOff: signal.payload.callType === "audio", startAudioOff: false });
+      const { Room, RoomEvent } = await import("livekit-client");
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      livekitRoomRef.current = room;
+
+      room.on(RoomEvent.ParticipantConnected, () => { setHasRemoteStream(true); });
+      room.on(RoomEvent.ParticipantDisconnected, () => { endCall(); });
+      room.on(RoomEvent.Disconnected, () => { endCall(); });
+
+      await room.connect(tokenData.url, tokenData.token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      if (signal.payload.callType === "video") await room.localParticipant.setCameraEnabled(true);
     } catch (err) {
-      console.error("Daily answer error:", err);
-      alert("Join error: " + JSON.stringify(err, null, 2));
+      console.error("LiveKit answer error:", err);
+      alert("Join error: " + (err instanceof Error ? err.message : JSON.stringify(err)));
       setInCall(false);
     }
   }
 
   function endCall() {
-    if (dailyRef.current) {
-      try { dailyRef.current.leave(); dailyRef.current.destroy(); } catch {}
-      dailyRef.current = null;
+    if (livekitRoomRef.current) {
+      try { livekitRoomRef.current.disconnect(); } catch {}
+      livekitRoomRef.current = null;
     }
     setInCall(false); setCalling(false); setMuted(false); setHasRemoteStream(false);
     if (me && otherUser) fetch("/api/chat/call", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -347,17 +365,17 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   }
 
   function toggleMute() {
-    if (dailyRef.current) {
+    if (livekitRoomRef.current) {
       const newMuted = !muted;
-      dailyRef.current.setLocalAudio(!newMuted);
+      livekitRoomRef.current.localParticipant.setMicrophoneEnabled(!newMuted);
       setMuted(newMuted);
     }
   }
 
   function toggleVideo() {
-    if (dailyRef.current) {
+    if (livekitRoomRef.current) {
       const newType = callType === "video" ? "audio" : "video";
-      dailyRef.current.setLocalVideo(newType === "video");
+      livekitRoomRef.current.localParticipant.setCameraEnabled(newType === "video");
       setCallType(newType);
     }
   }
