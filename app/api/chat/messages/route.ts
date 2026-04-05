@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get("userId") || "";
 
   const { data, error } = await supabase
-    .from("messages")
+    .from("chat_messages")
     .select("*")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   // Mark messages as read
   if (userId) {
     await supabase
-      .from("messages")
+      .from("chat_messages")
       .update({ read: true })
       .eq("conversation_id", conversationId)
       .neq("sender_id", userId)
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   const { conversationId, senderId, text, fileUrl, fileType, fileName } = body;
 
   const { data, error } = await supabase
-    .from("messages")
+    .from("chat_messages")
     .insert({
       conversation_id: conversationId,
       sender_id: senderId,

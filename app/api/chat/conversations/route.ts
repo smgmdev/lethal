@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
       // Count unread
       const { count } = await supabase
-        .from("messages")
+        .from("chat_messages")
         .select("*", { count: "exact", head: true })
         .eq("conversation_id", c.id)
         .eq("read", false)
